@@ -14,11 +14,13 @@ LoadOut tracks individual possessions across homes and travel containers, turns 
 
 ## Screenshots
 
-The UI below is rendered exclusively from the sanitized catalog in `data/examples/`; no personal inventory or itinerary data is included.
+The UI below is rendered exclusively from the sanitized catalog in `data/examples/`.
 
 ![LoadOut wardrobe overview](./assets/screenshots/wardrobe-overview.jpg)
 
 ![LoadOut item drawer](./assets/screenshots/item-drawer.jpg)
+
+![LoadOut trip packing interface](./assets/screenshots/trip-packing.jpg)
 
 ## Why LoadOut
 
@@ -150,19 +152,22 @@ npm run build
 
 The current personalized `tests/` and detailed trip notes in `docs/` are intentionally ignored. Before publishing either directory, replace all real locations, dates, names, item IDs, and itinerary details with synthetic fixtures.
 
-## Privacy checklist
+## Privacy guidelines
 
-The `.gitignore` is intentionally conservative, but it cannot protect files that were already committed or deliberately force-added. Before every push:
+LoadOut stores personal inventory and itinerary data as local YAML files, and `.gitignore` excludes those files by default. That protection only holds until a file is committed or force-added, so anyone sharing or publishing a copy of this repository should follow a few practices:
 
-```sh
-git status --short --ignored
-git diff --cached
-git check-ignore -v \
-  data/clothes.yaml data/locations.yaml data/trips.yaml \
-  data/packing_plans.yaml data/trip_executions.yaml
-```
+- Confirm nothing personal is staged before pushing:
 
-Never commit booking confirmations, boarding passes, calendar exports, receipts, passport details, or environment files. If sensitive data ever enters Git history, removing the working-tree file is not enough—rotate exposed credentials or booking references where possible and rewrite the repository history before publishing.
+  ```sh
+  git status --short --ignored
+  git diff --cached
+  git check-ignore -v \
+    data/clothes.yaml data/locations.yaml data/trips.yaml \
+    data/packing_plans.yaml data/trip_executions.yaml
+  ```
+
+- Never commit booking confirmations, boarding passes, calendar exports, receipts, passport details, or environment files.
+- If sensitive data ever enters Git history, removing the working-tree file is not enough. Rotate any exposed credentials or booking references where possible and rewrite the repository history before publishing.
 
 ## Project layout
 
