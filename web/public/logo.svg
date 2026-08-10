@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 512 512"
+     width="512"
+     height="512"
+     role="img"
+     aria-labelledby="title desc"
+     color="#111315">
+  <title id="title">LoadOut logo mark</title>
+  <desc id="desc">A minimal hanger integrated with an angular letter L, representing wardrobe logistics.</desc>
+  <g fill="none"
+     stroke="currentColor"
+     stroke-width="20"
+     stroke-linecap="round"
+     stroke-linejoin="round">
+    <path d="M213 119
+             C213 87 235 65 263 65
+             C292 65 311 84 311 111
+             C311 132 299 146 279 156
+             L256 176
+             L396 233
+             Q413 241 413 262
+             V318"/>
+    <path d="M256 176
+             L116 233
+             Q99 241 99 262
+             V401
+             Q99 426 124 426
+             H388
+             Q413 426 413 401
+             V354
+             H166
+             V239"/>
+  </g>
+</svg>

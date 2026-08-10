@@ -1,0 +1,85 @@
+# LoadOut private data -------------------------------------------------------
+# Runtime records can contain home locations, travel dates, booking details,
+# wardrobe contents, and movement history. Keep the reusable schema/rules and
+# sanitized examples; ignore every real runtime record by default.
+/data/*
+!/data/schema.yaml
+!/data/activity_templates.yaml
+!/data/requirement_matchers.yaml
+!/data/examples/
+!/data/examples/*.yaml
+
+# Legacy/private inventory sources and personalized fixtures/documentation.
+/inventory
+/markdown_data/
+/tests/
+/docs/
+
+# Common places for personal travel exports and attachments.
+/private/
+/personal/
+/bookings/
+/receipts/
+/attachments/
+/exports/
+*.pkpass
+*.ics
+*boarding-pass*
+*boarding_pass*
+*booking-confirmation*
+*booking_confirmation*
+*reservation-confirmation*
+*reservation_confirmation*
+*travel-itinerary*
+*travel_itinerary*
+
+# Local secrets and environment overrides.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Python.
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+build/
+dist/
+
+# Node / Vite / TypeScript.
+node_modules/
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+web/vite.config.js
+web/vite.config.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# LoadOut lock and temporary files.
+/data/.*.lock
+*.tmp
+*.bak
+*.swp
+
+# Editors and operating systems.
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
