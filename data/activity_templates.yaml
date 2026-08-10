@@ -1,0 +1,60 @@
+templates:
+- id: wedding
+  name: Wedding
+  required: [suit, formal_shirt, formal_shoes, belt]
+  optional: [tie]
+  notes: null
+
+- id: formal-dinner
+  name: Formal Dinner
+  required: [formal_outfit, formal_shoes]
+  optional: [belt, tie, jacket]
+  notes: null
+
+- id: beach
+  name: Beach
+  required: [beachwear, beach_shoes]
+  optional: [beach_towel, hat]
+  notes: null
+
+- id: swimming
+  name: Swimming
+  required: [swimwear]
+  optional: [towel, goggles]
+  notes: null
+
+- id: gym
+  name: Gym
+  required: [athletic_top, athletic_bottom, athletic_shoes]
+  optional: [gym_towel]
+  notes: null
+
+- id: soccer
+  name: Soccer
+  required: [soccer_shirt, soccer_shorts, soccer_shoes, soccer_socks]
+  optional: [sports_jacket]
+  notes: null
+
+- id: hiking
+  name: Hiking
+  required: [hiking_shoes, outdoor_top, outdoor_bottom]
+  optional: [warm_layer, rain_shell, hat]
+  notes: null
+
+- id: work
+  name: Work
+  required: [work_outfit, work_shoes]
+  optional: [work_bag, jacket]
+  notes: null
+
+- id: casual-day
+  name: Casual Day
+  required: [casual_top, casual_bottom, casual_shoes]
+  optional: [light_layer]
+  notes: null
+
+- id: nightlife
+  name: Nightlife
+  required: [nightlife_outfit, nightlife_shoes]
+  optional: [jacket]
+  notes: null

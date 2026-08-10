@@ -1,0 +1,20 @@
+- id: home
+  name: Home
+  kind: home
+  city: Example City
+  region: null
+  country: Example Country
+  aliases: [main-home]
+  notes: Sanitized example location.
+
+- id: suitcase
+  name: Suitcase
+  kind: travel_container
+  aliases: [checked-bag]
+  notes: null
+
+- id: carry-on
+  name: Carry-on
+  kind: travel_container
+  aliases: [cabin-bag]
+  notes: null

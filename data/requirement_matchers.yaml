@@ -1,0 +1,192 @@
+matchers:
+- category: suit
+  any:
+  - types: [suit]
+    tags: []
+    attributes: {}
+- category: formal_shirt
+  any:
+  - types: [shirt, long_sleeve_shirt]
+    tags: [formal]
+    attributes: {}
+- category: formal_shoes
+  any:
+  - types: [dress_shoes]
+    tags: [formal]
+    attributes: {}
+- category: belt
+  any:
+  - types: [belt]
+    tags: []
+    attributes: {}
+- category: tie
+  any:
+  - types: [tie]
+    tags: []
+    attributes: {}
+- category: formal_outfit
+  any:
+  - types: [suit, tuxedo]
+    tags: []
+    attributes: {}
+- category: jacket
+  any:
+  - types: [jacket, suit_jacket]
+    tags: []
+    attributes: {}
+- category: beachwear
+  any:
+  - types: [swimwear, swim_trunks]
+    tags: []
+    attributes: {}
+  - types: [shorts]
+    tags: [beach]
+    attributes: {}
+- category: beach_shoes
+  any:
+  - types: [flip_flops]
+    tags: []
+    attributes: {}
+- category: beach_towel
+  any:
+  - types: [beach_towel]
+    tags: []
+    attributes: {}
+- category: hat
+  any:
+  - types: [hat]
+    tags: []
+    attributes: {}
+- category: swimwear
+  any:
+  - types: [swimwear, swim_trunks]
+    tags: [swimming]
+    attributes: {}
+- category: towel
+  any:
+  - types: [towel, beach_towel]
+    tags: []
+    attributes: {}
+- category: goggles
+  any: []
+- category: athletic_top
+  any:
+  - types: [t_shirt, tank_top]
+    tags: [gym]
+    attributes: {}
+  - types: [t_shirt, tank_top]
+    tags: [sport]
+    attributes: {}
+  - types: [t_shirt, tank_top]
+    tags: [running]
+    attributes: {}
+- category: athletic_bottom
+  any:
+  - types: [sports_shorts, shorts, sweatpants]
+    tags: [gym]
+    attributes: {}
+  - types: [sports_shorts, shorts, sweatpants]
+    tags: [sport]
+    attributes: {}
+- category: athletic_shoes
+  any:
+  - types: [athletic_shoes]
+    tags: []
+    attributes: {}
+- category: gym_towel
+  any:
+  - types: [towel]
+    tags: [gym]
+    attributes: {}
+- category: soccer_shirt
+  any:
+  - types: [t_shirt]
+    tags: [sport]
+    attributes: {sport: soccer}
+- category: soccer_shorts
+  any:
+  - types: [sports_shorts]
+    tags: [sport]
+    attributes: {}
+- category: soccer_shoes
+  any:
+  - types: [soccer_shoes]
+    tags: []
+    attributes: {}
+- category: soccer_socks
+  any:
+  - types: [socks]
+    tags: [sport]
+    attributes: {sport: soccer}
+- category: sports_jacket
+  any:
+  - types: [jacket, zip_up]
+    tags: [sport]
+    attributes: {}
+- category: hiking_shoes
+  any:
+  - types: [boots, athletic_shoes]
+    tags: [outside]
+    attributes: {}
+- category: outdoor_top
+  any:
+  - types: [t_shirt, long_sleeve_shirt, shirt]
+    tags: [outside]
+    attributes: {}
+- category: outdoor_bottom
+  any:
+  - types: [shorts, sports_shorts, jeans]
+    tags: [outside]
+    attributes: {}
+- category: warm_layer
+  any:
+  - types: [sweater, hoodie, zip_up, jacket]
+    tags: [winter]
+    attributes: {}
+- category: rain_shell
+  any: []
+- category: work_outfit
+  any:
+  - types: [shirt, long_sleeve_shirt]
+    tags: [formal]
+    attributes: {}
+- category: work_shoes
+  any:
+  - types: [dress_shoes, shoes]
+    tags: [formal]
+    attributes: {}
+- category: work_bag
+  any: []
+- category: casual_top
+  any:
+  - types: [t_shirt, shirt, long_sleeve_shirt, tank_top]
+    tags: [casual]
+    attributes: {}
+- category: casual_bottom
+  any:
+  - types: [shorts, jeans, sweatpants]
+    tags: [casual]
+    attributes: {}
+- category: casual_shoes
+  any:
+  - types: [shoes, athletic_shoes, boots, flip_flops]
+    tags: [casual]
+    attributes: {}
+- category: light_layer
+  any:
+  - types: [zip_up, hoodie, sweater, jacket]
+    tags: [casual]
+    attributes: {}
+- category: nightlife_outfit
+  any:
+  - types: [shirt, suit, suit_jacket, jacket]
+    tags: [semi_formal]
+    attributes: {}
+  - types: [shirt, suit, suit_jacket, jacket]
+    tags: [formal]
+    attributes: {}
+- category: nightlife_shoes
+  any:
+  - types: [dress_shoes, shoes, boots]
+    tags: [formal]
+    attributes: {}

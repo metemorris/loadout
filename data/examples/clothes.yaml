@@ -1,0 +1,231 @@
+definitions:
+- id: home-rain-jacket
+  name: Rain Jacket
+  type: jacket
+  attributes: {color: navy, waterproof: true}
+  use: [casual, outside, travel]
+  notes: null
+  sources:
+  - id: home-rain-jacket
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-white-t-shirt
+  name: Everyday White T-Shirt
+  type: t_shirt
+  attributes: {color: white, pattern: plain}
+  use: [casual, outside, travel]
+  notes: null
+  sources:
+  - id: home-white-t-shirt
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-blue-jeans
+  name: Classic Blue Jeans
+  type: jeans
+  attributes: {color: blue, fit: straight}
+  use: [casual, outside]
+  notes: null
+  sources:
+  - id: home-blue-jeans
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-gray-hoodie
+  name: Heather Gray Hoodie
+  type: hoodie
+  attributes: {color: gray, material: cotton}
+  use: [casual, lounge, travel]
+  notes: null
+  sources:
+  - id: home-gray-hoodie
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-white-sneakers
+  name: White Leather Sneakers
+  type: shoes
+  attributes: {color: white, material: leather}
+  use: [casual, outside, travel]
+  notes: null
+  sources:
+  - id: home-white-sneakers
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-charcoal-suit
+  name: Charcoal Two-Piece Suit
+  type: suit
+  attributes: {color: charcoal, material: wool}
+  use: [formal]
+  notes: null
+  sources:
+  - id: home-charcoal-suit
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-black-cap
+  name: Black Everyday Cap
+  type: hat
+  attributes: {color: black, style: baseball}
+  use: [casual, outside, travel]
+  notes: null
+  sources:
+  - id: home-black-cap
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: suitcase-travel-towel
+  name: Compact Travel Towel
+  type: towel
+  attributes: {color: gray, quick_dry: true}
+  use: [travel, gym]
+  notes: null
+  sources:
+  - id: suitcase-travel-towel
+    original_location: suitcase
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-running-shorts
+  name: Navy Running Shorts
+  type: sports_shorts
+  attributes: {color: navy, quick_dry: true}
+  use: [gym, running, sport]
+  notes: null
+  sources:
+  - id: home-running-shorts
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-cream-sweater
+  name: Cream Merino Sweater
+  type: sweater
+  attributes: {color: cream, material: merino}
+  use: [casual, travel, winter]
+  notes: null
+  sources:
+  - id: home-cream-sweater
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+instances:
+- id: home-rain-jacket
+  definition: home-rain-jacket
+  source: home-rain-jacket
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-white-t-shirt
+  definition: home-white-t-shirt
+  source: home-white-t-shirt
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-blue-jeans
+  definition: home-blue-jeans
+  source: home-blue-jeans
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-gray-hoodie
+  definition: home-gray-hoodie
+  source: home-gray-hoodie
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-white-sneakers
+  definition: home-white-sneakers
+  source: home-white-sneakers
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-charcoal-suit
+  definition: home-charcoal-suit
+  source: home-charcoal-suit
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-black-cap
+  definition: home-black-cap
+  source: home-black-cap
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: suitcase-travel-towel
+  definition: suitcase-travel-towel
+  source: suitcase-travel-towel
+  current_location: suitcase
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-running-shorts
+  definition: home-running-shorts
+  source: home-running-shorts
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-cream-sweater
+  definition: home-cream-sweater
+  source: home-cream-sweater
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []

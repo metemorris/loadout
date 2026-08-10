@@ -1,0 +1,183 @@
+version: 8
+
+inventory:
+  root: mapping
+  required_sections: [definitions, instances]
+
+definitions:
+  root: list
+  required_fields: [id, name, type, attributes, use, notes, sources]
+  allowed_types:
+    - athletic_shoes
+    - bandana
+    - beach_towel
+    - beanie
+    - belt
+    - boots
+    - dress_shoes
+    - flip_flops
+    - gloves
+    - hat
+    - hoodie
+    - jacket
+    - jeans
+    - long_sleeve_shirt
+    - neck_gaiter
+    - robe
+    - scarf
+    - shirt
+    - shoes
+    - shorts
+    - soccer_shoes
+    - socks
+    - sports_shorts
+    - suit
+    - suit_jacket
+    - sweater
+    - sweatpants
+    - swim_trunks
+    - swimwear
+    - tank_top
+    - thermal_pants
+    - tie
+    - t_shirt
+    - towel
+    - tuxedo
+    - underwear
+    - vest
+    - zip_up
+  allowed_uses:
+    - beach
+    - camping
+    - casual
+    - formal
+    - gym
+    - home
+    - inside
+    - lounge
+    - motorcycling
+    - outside
+    - running
+    - sauna
+    - semi_formal
+    - sport
+    - swimming
+    - travel
+    - winter
+
+sources:
+  root: list
+  required_fields: [id, original_location, original_quantity, original_condition, notes]
+
+instances:
+  root: list
+  required_fields: [id, definition, source, current_location, preferred_location, condition, status, notes, movements]
+
+movements:
+  root: list
+  required_fields: [timestamp, source, destination, reason]
+
+trip_store:
+  root: mapping
+  required_sections: [trips]
+
+trips:
+  root: list
+  required_fields: [id, name, status, start_date, end_date, places, legs, luggage, attachments, planning, notes]
+  allowed_statuses: [planned, in_progress, completed, cancelled]
+
+trip_places:
+  root: list
+  required_fields: [id, name, notes]
+
+trip_legs:
+  root: list
+  required_fields: [id, origin, destination, departure, arrival, transport_notes]
+
+trip_attachments:
+  root: list
+  required_fields: [id, kind, name, type, leg, location, date, frequency, requirements, notes]
+  allowed_kinds: [activity, event]
+
+template_store:
+  root: mapping
+  required_sections: [templates]
+
+requirement_templates:
+  root: list
+  required_fields: [id, name, required, optional, notes]
+
+requirement_overrides:
+  root: mapping
+  required_fields: [add, add_optional, remove, remove_optional]
+
+trip_planning:
+  root: mapping
+  required_fields: [legs, notes]
+
+trip_leg_planning:
+  root: list
+  required_fields: [leg, activities_complete, laundry_available, weather, context, notes]
+
+trip_weather:
+  root: mapping
+  required_fields: [summary, low_c, high_c, precipitation, source, checked_at]
+
+matcher_store:
+  root: mapping
+  required_sections: [matchers]
+
+requirement_matchers:
+  root: list
+  required_fields: [category, any]
+
+requirement_matcher_clauses:
+  root: list
+  required_fields: [types, tags, attributes]
+
+packing_plan_store:
+  root: mapping
+  required_sections: [plans]
+
+packing_plans:
+  root: list
+  required_fields: [id, trip, status, created_at, sections, notes]
+  allowed_statuses: [draft, confirmed]
+
+packing_plan_sections:
+  root: mapping
+  required_sections: [pack, wear_in_transit, already_there, optional, do_not_pack, missing, leave_at_destination, bring_back, move_between_legs]
+
+packing_plan_entries:
+  root: list
+  required_fields: [item, requirement, leg, container, source, destination, quantity, reason]
+
+trip_execution_store:
+  root: mapping
+  required_sections: [executions]
+
+trip_executions:
+  root: list
+  required_fields: [id, trip, packing_plan, status, created_at, actions, reconciliation, notes]
+  allowed_statuses: [preparing, in_progress, reconciling, completed, cancelled]
+
+trip_execution_actions:
+  root: list
+  required_fields: [id, timestamp, kind, item, description, decision, leg, source, destination, reason, states]
+  allowed_kinds: [accepted, packed, used, unused, rejected, transferred, purchased, damaged, discarded, lost, returned, stayed]
+
+trip_execution_action_states:
+  root: list
+  required_fields: [timestamp, status, notes]
+  allowed_statuses: [confirmed, applied, failed]
+
+trip_reconciliation:
+  root: mapping
+  required_fields: [what_came_back, stayed_at_destination, never_used, purchased, incidents, rejected_or_changed, notes, completed_at]
+
+locations:
+  root: list
+  required_fields: [id, name, kind, aliases, notes]
+  allowed_kinds: [home, travel_container]
+  required_by_kind:
+    home: [city, country]
