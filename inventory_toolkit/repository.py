@@ -10,6 +10,7 @@ from typing import Optional, Protocol, Sequence, Tuple
 
 from .execution import TripExecutionCatalog, load_trip_executions
 from .loader import load_inventory
+from .load_context import catalog_load_context
 from .models import Movement
 from .movement import (
     ConfirmationRequiredError,
@@ -64,12 +65,13 @@ class YamlCatalogRepository:
         return self._data_dir
 
     def snapshot(self) -> CatalogSnapshot:
-        return CatalogSnapshot(
-            load_inventory(self._data_dir),
-            load_trips(self._data_dir),
-            load_packing_plans(self._data_dir),
-            load_trip_executions(self._data_dir),
-        )
+        with catalog_load_context():
+            return CatalogSnapshot(
+                load_inventory(self._data_dir),
+                load_trips(self._data_dir),
+                load_packing_plans(self._data_dir),
+                load_trip_executions(self._data_dir),
+            )
 
     def preview_movement(self, item_ids, source, destination, **kwargs) -> MovementPlan:
         return plan_movement(item_ids, source, destination, data_dir=self._data_dir, **kwargs)

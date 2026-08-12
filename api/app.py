@@ -5,6 +5,7 @@ import uuid
 from dataclasses import fields, is_dataclass, replace
 from datetime import datetime, timezone
 from functools import lru_cache
+from time import perf_counter
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
@@ -12,6 +13,8 @@ from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
 from fastapi import FastAPI, HTTPException, Query as ApiQuery
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from api.metrics import ApiMetrics
 
 from inventory_toolkit.execution import (
     ExecutionValidationError,
@@ -23,6 +26,7 @@ from inventory_toolkit.execution import (
     record_execution_action,
 )
 from inventory_toolkit.loader import InventoryValidationError, load_inventory
+from inventory_toolkit.load_context import catalog_load_context
 from inventory_toolkit.models import PhysicalItem, Query
 from inventory_toolkit.movement import MovementError, move_items, plan_movement
 from inventory_toolkit.repository import CatalogRepository
@@ -94,12 +98,13 @@ def _load_catalog_snapshot(directory_name: str, signature: tuple) -> tuple:
     """Cache validated read models until one of their source files changes."""
 
     directory = Path(directory_name)
-    return (
-        load_inventory(directory),
-        load_trips(directory),
-        load_packing_plans(directory),
-        load_trip_executions(directory),
-    )
+    with catalog_load_context():
+        return (
+            load_inventory(directory),
+            load_trips(directory),
+            load_packing_plans(directory),
+            load_trip_executions(directory),
+        )
 
 
 def _catalog_snapshot() -> tuple:
@@ -356,9 +361,19 @@ def _editable_plan(plan: PackingPlan) -> PackingPlan:
 
 def create_app(repository: Optional[CatalogRepository] = None) -> FastAPI:
     app = FastAPI(title="LoadOut API", version="0.3.0")
+    metrics = ApiMetrics()
 
     def catalog_snapshot() -> tuple:
-        return repository.snapshot().as_tuple() if repository is not None else _catalog_snapshot()
+        started = perf_counter()
+        if repository is not None:
+            result = repository.snapshot().as_tuple()
+            outcome = "repository"
+        else:
+            misses = _load_catalog_snapshot.cache_info().misses
+            result = _catalog_snapshot()
+            outcome = "miss" if _load_catalog_snapshot.cache_info().misses > misses else "hit"
+        metrics.snapshot_finished(outcome, perf_counter() - started)
+        return result
 
     def durable_data_dir() -> Path:
         if repository is None:
@@ -377,6 +392,22 @@ def create_app(repository: Optional[CatalogRepository] = None) -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def measure_request(request: Any, call_next: Any):
+        metrics.request_started()
+        started = perf_counter()
+        status = 500
+        try:
+            response = await call_next(request)
+            status = response.status_code
+            return response
+        finally:
+            route = request.scope.get("route")
+            normalized_route = getattr(route, "path", "unmatched")
+            metrics.request_finished(
+                request.method, normalized_route, status, perf_counter() - started
+            )
+
     @app.exception_handler(InventoryValidationError)
     @app.exception_handler(TripValidationError)
     @app.exception_handler(PackingValidationError)
@@ -391,6 +422,10 @@ def create_app(repository: Optional[CatalogRepository] = None) -> FastAPI:
     def health() -> Dict[str, str]:
         catalog_snapshot()
         return {"status": "ok", "mode": "local"}
+
+    @app.get("/api/metrics")
+    def runtime_metrics() -> Dict[str, Any]:
+        return metrics.export()
 
     @app.get("/api/overview")
     def overview() -> Dict[str, Any]:

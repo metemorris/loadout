@@ -13,6 +13,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import yaml
 
 from .paths import default_data_directory
+from .load_context import cached_catalog_load
 
 CATEGORY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -207,6 +208,14 @@ def _parse_category_list(raw: Any, label: str, errors: List[str]) -> Tuple[str, 
 
 def load_requirement_templates(data_dir: Optional[Path] = None) -> RequirementTemplateCatalog:
     directory = _data_directory(data_dir)
+    return cached_catalog_load(
+        "requirement_templates",
+        str(directory.resolve()),
+        lambda: _load_requirement_templates(directory),
+    )
+
+
+def _load_requirement_templates(directory: Path) -> RequirementTemplateCatalog:
     raw = _read_yaml(directory / "activity_templates.yaml")
     schema = _read_yaml(directory / "schema.yaml")
     errors: List[str] = []

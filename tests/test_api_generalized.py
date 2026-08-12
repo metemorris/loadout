@@ -19,6 +19,20 @@ def test_overview_uses_injected_catalog(client):
     }
 
 
+def test_runtime_metrics_use_normalized_routes_and_track_snapshots(client):
+    assert client.get("/api/items/home-underwear").status_code == 200
+
+    payload = client.get("/api/metrics").json()
+    item_metric = next(
+        metric for metric in payload["requests"]
+        if metric["route"] == "/api/items/{item_id}"
+    )
+    assert item_metric["method"] == "GET"
+    assert item_metric["status"] == 200
+    assert item_metric["count"] == 1
+    assert payload["catalogSnapshots"]["repository"]["count"] == 1
+
+
 def test_trip_detail_exposes_all_plan_sections_and_execution(client):
     response = client.get("/api/trips/sample-trip")
     assert response.status_code == 200

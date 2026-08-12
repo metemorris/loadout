@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 import yaml
 
 from .loader import load_inventory
+from .load_context import cached_catalog_load
 from .movement import move_items, plan_movement, register_purchased_item, update_item_status
 from .paths import default_data_directory
 from .packing import PLAN_SECTIONS, PackingPlan, load_packing_plan, load_packing_plans
@@ -491,10 +492,14 @@ def _parse_store(raw: Any, schema: Any, data_dir: Path) -> TripExecutionCatalog:
 
 def load_trip_executions(data_dir: Optional[Path] = None) -> TripExecutionCatalog:
     directory = _data_directory(data_dir)
-    return _parse_store(
-        _read_yaml(directory / "trip_executions.yaml"),
-        _read_yaml(directory / "schema.yaml"),
-        directory,
+    return cached_catalog_load(
+        "trip_executions",
+        str(directory.resolve()),
+        lambda: _parse_store(
+            _read_yaml(directory / "trip_executions.yaml"),
+            _read_yaml(directory / "schema.yaml"),
+            directory,
+        ),
     )
 
 

@@ -17,6 +17,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 import yaml
 
 from .loader import load_inventory
+from .load_context import cached_catalog_load
 from .models import Movement, PhysicalItem
 from .paths import default_data_directory
 from .planning import TripReadinessReport, inspect_trip_readiness
@@ -823,10 +824,14 @@ def _parse_plan_store(raw: Any, schema: Any, data_dir: Path) -> PackingPlanCatal
 
 def load_packing_plans(data_dir: Optional[Path] = None) -> PackingPlanCatalog:
     directory = _data_directory(data_dir)
-    return _parse_plan_store(
-        _read_yaml(directory / "packing_plans.yaml"),
-        _read_yaml(directory / "schema.yaml"),
-        directory,
+    return cached_catalog_load(
+        "packing_plans",
+        str(directory.resolve()),
+        lambda: _parse_plan_store(
+            _read_yaml(directory / "packing_plans.yaml"),
+            _read_yaml(directory / "schema.yaml"),
+            directory,
+        ),
     )
 
 

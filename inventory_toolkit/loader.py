@@ -23,6 +23,7 @@ from .models import (
     PhysicalItem,
 )
 from .paths import default_data_directory
+from .load_context import cached_catalog_load
 from .query import Inventory
 
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -493,6 +494,12 @@ def load_inventory(data_dir: Optional[Path] = None) -> Inventory:
     """Load and validate the inventory from *data_dir* without mutating YAML."""
 
     directory = Path(data_dir) if data_dir is not None else default_data_directory()
+    return cached_catalog_load(
+        "inventory", str(directory.resolve()), lambda: _load_inventory(directory)
+    )
+
+
+def _load_inventory(directory: Path) -> Inventory:
     schema = _read_yaml(directory / "schema.yaml")
     locations_raw = _read_yaml(directory / "locations.yaml")
     inventory_raw = _read_yaml(directory / "clothes.yaml")

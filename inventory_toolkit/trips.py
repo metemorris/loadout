@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Seque
 import yaml
 
 from .loader import load_inventory
+from .load_context import cached_catalog_load
 from .paths import default_data_directory
 from .requirements import (
     RequirementOverrides,
@@ -741,10 +742,14 @@ def _parse_trips(raw: Any, schema: Any, data_dir: Path) -> TripCatalog:
 
 def load_trips(data_dir: Optional[Path] = None) -> TripCatalog:
     directory = _data_directory(data_dir)
-    return _parse_trips(
-        _read_yaml(directory / "trips.yaml"),
-        _read_yaml(directory / "schema.yaml"),
-        directory,
+    return cached_catalog_load(
+        "trips",
+        str(directory.resolve()),
+        lambda: _parse_trips(
+            _read_yaml(directory / "trips.yaml"),
+            _read_yaml(directory / "schema.yaml"),
+            directory,
+        ),
     )
 
 
