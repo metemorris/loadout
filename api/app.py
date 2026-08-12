@@ -26,6 +26,7 @@ from inventory_toolkit.loader import InventoryValidationError, load_inventory
 from inventory_toolkit.models import PhysicalItem, Query
 from inventory_toolkit.movement import MovementError, move_items, plan_movement
 from inventory_toolkit.repository import CatalogRepository
+from inventory_toolkit.paths import default_data_directory
 from inventory_toolkit.packing import (
     PackingPlan,
     PackingPlanEntry,
@@ -39,8 +40,7 @@ from inventory_toolkit.packing import (
 from inventory_toolkit.trips import TripNotFoundError, TripValidationError, load_trips
 
 
-ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = ROOT / "data"
+DEFAULT_DATA_DIR = default_data_directory()
 SNAPSHOT_FILES = (
     "schema.yaml", "clothes.yaml", "locations.yaml", "trips.yaml",
     "packing_plans.yaml", "trip_executions.yaml",
@@ -355,7 +355,7 @@ def _editable_plan(plan: PackingPlan) -> PackingPlan:
 
 
 def create_app(repository: Optional[CatalogRepository] = None) -> FastAPI:
-    app = FastAPI(title="LoadOut API", version="0.1.0")
+    app = FastAPI(title="LoadOut API", version="0.3.0")
 
     def catalog_snapshot() -> tuple:
         return repository.snapshot().as_tuple() if repository is not None else _catalog_snapshot()
@@ -1029,4 +1029,4 @@ app = create_app()
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("api.app:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("api.app:app", host="127.0.0.1", port=8000)

@@ -18,6 +18,7 @@ import yaml
 
 from .loader import load_inventory
 from .models import Movement, PhysicalItem
+from .paths import default_data_directory
 from .planning import TripReadinessReport, inspect_trip_readiness
 from .requirements import ResolvedTripRequirements, load_requirement_templates, resolve_trip_requirements
 from .trips import Trip, TripLegPlanning, TripNotFoundError, load_trip, load_trips
@@ -200,7 +201,7 @@ class PackingPlanCatalog:
 
 
 def _data_directory(data_dir: Optional[Path]) -> Path:
-    return Path(data_dir) if data_dir is not None else Path(__file__).resolve().parents[1] / "data"
+    return Path(data_dir) if data_dir is not None else default_data_directory()
 
 
 def _read_yaml(path: Path) -> Any:
@@ -771,6 +772,19 @@ def _parse_plan_store(raw: Any, schema: Any, data_dir: Path) -> PackingPlanCatal
                 else:
                     valid = False
             section_values[section] = tuple(entries)
+        for section, entries in section_values.items():
+            physical_items = [entry.item for entry in entries if entry.item is not None]
+            duplicates = sorted(
+                item_id for item_id in set(physical_items)
+                if physical_items.count(item_id) > 1
+            )
+            if duplicates:
+                errors.append(
+                    "{}.sections.{} repeats physical items: {}".format(
+                        label, section, ", ".join(duplicates)
+                    )
+                )
+                valid = False
         packed = {entry.item for entry in section_values["pack"]}
         worn = {entry.item for entry in section_values["wear_in_transit"]}
         already_there = {entry.item for entry in section_values["already_there"]}

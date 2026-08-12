@@ -56,6 +56,7 @@ Install and start the API from the repository root:
 
 ```sh
 python3 -m venv .venv
+./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install -e '.[dev]'
 ./.venv/bin/uvicorn api.app:app --reload
 ```
@@ -64,7 +65,7 @@ In a second terminal, start the web app:
 
 ```sh
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -113,7 +114,7 @@ Packing-plan confirmation alone never moves an item. Preferred locations remain 
 
 ## CLI
 
-Installing the Python package registers the `inventory` command. The repository-local `./inventory` wrapper provides the same interface.
+Installing the Python package registers the `inventory` command.
 
 ```sh
 # Validate the complete local dataset
@@ -138,6 +139,10 @@ inventory move home-rain-jacket --from home --to carry-on \
 inventory trip readiness sample-trip
 inventory --json packing context sample-trip
 inventory --json packing matches sample-trip --requirement outer_layer
+
+# Reconcile actions left pending by an interrupted inventory/ledger write.
+# This rechecks each exact source and destination before applying anything.
+inventory execution recover sample-trip-execution --confirm
 ```
 
 Run `inventory --help` or `inventory <command> --help` for the full command surface.
@@ -145,7 +150,7 @@ Run `inventory --help` or `inventory <command> --help` for the full command surf
 ## Development
 
 ```sh
-# Fast generalized suite: in-memory domain/API coverage plus five YAML workflows
+# Fast generalized suite: in-memory domain/API coverage plus durable YAML workflows
 ./.venv/bin/pytest
 
 # Only the durable YAML end-to-end contracts
@@ -162,16 +167,34 @@ cd web
 npm run build
 ```
 
+GitHub Actions runs the generalized suite on Python 3.9 and 3.12, builds and
+installs the wheel outside the checkout, verifies the Ruby compatibility entry
+point, and builds the frontend from `package-lock.json`.
+
+`scripts/validate_inventory.rb [DATA_DIR]` is a compatibility wrapper around
+the Python validator so there is only one schema implementation. The legacy
+inventory migration is non-writing by default: inspect it with
+`scripts/migrate_inventory_v2.rb --dry-run --path PATH`, then pass `--confirm`
+to write an atomic migration and retain a `.v1.bak` backup.
+
 The default suite is intentionally independent of the local wardrobe. It uses
 the complete synthetic lifecycle in `data/examples/`, an injected in-memory
-repository for domain and API tests, property-based invariant checks, and five
-marked YAML adapter workflows. Pytest prints the ten slowest cases on every
+repository for domain and API tests, property-based invariant checks, and
+marked YAML adapter workflows, including interrupted-write recovery. Pytest
+prints the ten slowest cases on every
 run. The only default-excluded checks are the read-only local compatibility
 smoke test and superseded historical tests tied to a private catalog.
 
 The detailed trip notes in `docs/` remain intentionally ignored. Before
 publishing that directory, replace all real locations, dates, names, item IDs,
 and itinerary details with synthetic fixtures.
+
+## Local service security
+
+The API has no user accounts or authentication. It is designed for one user on
+one machine, binds to `127.0.0.1`, and only permits the local Vite origins by
+default. Do not expose port 8000 to a public network or place this service
+behind a public reverse proxy without adding authentication and authorization.
 
 ## Privacy guidelines
 
@@ -204,4 +227,6 @@ logo.svg                LoadOut mark and README artwork
 
 ## License
 
-No license has been added yet. Until one is chosen, the source is not automatically licensed for redistribution.
+LoadOut is released under the [MIT License](./LICENSE). See
+[ASSETS.md](./ASSETS.md) for the visual-asset provenance record, including the
+embedded OpenAI C2PA Content Credentials.

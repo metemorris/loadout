@@ -35,6 +35,7 @@ from .execution import (
     load_trip_executions,
     record_execution_action,
     record_purchased_item,
+    recover_pending_execution_actions,
     review_reconciliation,
 )
 from .models import (
@@ -232,6 +233,7 @@ __all__ = [
     "begin_trip_execution",
     "record_execution_action",
     "record_purchased_item",
+    "recover_pending_execution_actions",
     "review_reconciliation",
     "complete_trip_execution",
     "cancel_trip_execution",

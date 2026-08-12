@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   DndContext,
   KeyboardSensor,
@@ -86,17 +86,21 @@ function useServerData() {
   const [trips, setTrips] = useState<TripSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const refreshRequest = useRef(0)
 
   const refresh = useCallback(async () => {
+    const request = ++refreshRequest.current
     try {
       setError(null)
       const [overviewData, tripData] = await Promise.all([api.overview(), api.trips()])
+      if (request !== refreshRequest.current) return
       setOverview(overviewData)
       setTrips(tripData.trips)
     } catch (reason) {
+      if (request !== refreshRequest.current) return
       setError(reason instanceof Error ? reason.message : 'LoadOut could not reach its local data service.')
     } finally {
-      setLoading(false)
+      if (request === refreshRequest.current) setLoading(false)
     }
   }, [])
 
@@ -664,15 +668,28 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   const locationNames = Object.fromEntries(overview.locations.map(location => [location.id, location.name]))
 
   useEffect(() => {
-    if (!selectedTripId) { setTripDetail(null); return }
+    if (!trips.length) {
+      setSelectedTripId(null)
+    } else if (!selectedTripId || !trips.some(value => value.id === selectedTripId)) {
+      setSelectedTripId(trips[0].id)
+    }
+  }, [trips, selectedTripId])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!selectedTripId) { setTripDetail(null); return () => { cancelled = true } }
     setTripDetail(null)
     setSelectedContainerId(null)
     void api.trip(selectedTripId).then(nextDetail => {
+      if (cancelled) return
       setTripDetail(nextDetail)
       setSurface(nextDetail.plans.length ? 'packing' : 'containers')
       if (!nextDetail.plans.length) void onLoadContainers()
-    }).catch(reason => setActionError(reason instanceof Error ? reason.message : 'The trip could not be loaded.'))
-  }, [selectedTripId])
+    }).catch(reason => {
+      if (!cancelled) setActionError(reason instanceof Error ? reason.message : 'The trip could not be loaded.')
+    })
+    return () => { cancelled = true }
+  }, [selectedTripId, onLoadContainers])
 
   useEffect(() => { if (selectedContainer && !selectedContainerId) setSelectedContainerId(selectedContainer.id) }, [selectedContainer, selectedContainerId])
 
@@ -821,10 +838,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
         )}
         <div className="trip-actions">
           <button className={surface === 'packing' ? 'active' : ''} onClick={() => setSurface('packing')}><PackageCheck /><span><strong>Pack list</strong><small>Review items one by one</small></span></button>
-          <button><ArrowLeftRight /><span><strong>Move</strong><small>Confirm physical moves</small></span></button>
           <button className={surface === 'containers' ? 'active' : ''} onClick={() => { setSurface('containers'); void onLoadContainers() }}><Archive /><span><strong>View contents</strong><small>Inspect packed items</small></span></button>
-          <button><Sparkles /><span><strong>Suggestions</strong><small>Use packing context</small></span></button>
-          <button className="more-action"><MoreHorizontal /></button>
         </div>
       </main>
       <PackingActionDialog pending={pendingAction} busy={actionBusy} error={actionError} onClose={() => { setPendingAction(null); setActionError(null) }} onConfirm={(replacementId, notes) => void confirmAction(replacementId, notes)} />
@@ -916,6 +930,8 @@ export default function App() {
   const [pendingItem, setPendingItem] = useState<InventoryItem | null>(null)
   const [moveBusy, setMoveBusy] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const locationRequest = useRef(0)
+  const containerRequest = useRef(0)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor))
 
   useEffect(() => {
@@ -925,11 +941,14 @@ export default function App() {
   }, [overview, selectedLocationId])
 
   const loadLocation = useCallback(async (id: string) => {
+    const request = ++locationRequest.current
     try {
       const value = await api.location(id)
+      if (request !== locationRequest.current) return
       setDetail(value)
       setCategory(null)
     } catch (reason) {
+      if (request !== locationRequest.current) return
       setDetail(null)
       console.error(reason)
     }
@@ -939,11 +958,14 @@ export default function App() {
 
   const loadContainerDetails = useCallback(async () => {
     if (!overview) return
+    const request = ++containerRequest.current
     const containers = overview.locations.filter(location => location.kind === 'travel_container')
     try {
       const entries = await Promise.all(containers.map(async location => [location.id, await api.location(location.id)] as const))
+      if (request !== containerRequest.current) return
       setContainerDetails(Object.fromEntries(entries))
     } catch (reason) {
+      if (request !== containerRequest.current) return
       console.error(reason)
     }
   }, [overview])

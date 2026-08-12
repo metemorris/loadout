@@ -17,6 +17,7 @@ import yaml
 
 from .loader import load_inventory
 from .models import PhysicalItem
+from .paths import default_data_directory
 
 
 class MovementError(ValueError):
@@ -64,7 +65,7 @@ class ItemStateResult:
 
 
 def _data_directory(data_dir: Optional[Path]) -> Path:
-    return Path(data_dir) if data_dir is not None else Path(__file__).resolve().parents[1] / "data"
+    return Path(data_dir) if data_dir is not None else default_data_directory()
 
 
 def _normalize_timestamp(value: Optional[str]) -> str:
