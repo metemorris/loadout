@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["httpx>=0.27,<1", "pytest>=8,<9"]
+dev = ["httpx>=0.27,<1", "pytest>=8,<9", "hypothesis>=6,<7"]
 
 [project.scripts]
 inventory = "inventory_toolkit.cli:main"
@@ -25,4 +25,12 @@ packages = ["inventory_toolkit", "api"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+addopts = "-q -m 'not personal_data and not legacy_personal' --strict-markers --durations=10 --durations-min=0.25"
+markers = [
+  "unit: pure or in-memory domain tests",
+  "api: API tests using an injected in-memory repository",
+  "e2e: durable YAML adapter workflows",
+  "property: generated domain-invariant tests",
+  "personal_data: one read-only compatibility check for the local catalog",
+  "legacy_personal: superseded tests coupled to one historical personal catalog",
+]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import fields, is_dataclass, replace
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
@@ -16,6 +17,7 @@ from inventory_toolkit.execution import (
     ExecutionValidationError,
     TripExecutionNotFoundError,
     confirm_packing_decision,
+    confirm_packing_decisions,
     create_trip_execution,
     load_trip_executions,
     record_execution_action,
@@ -23,6 +25,7 @@ from inventory_toolkit.execution import (
 from inventory_toolkit.loader import InventoryValidationError, load_inventory
 from inventory_toolkit.models import PhysicalItem, Query
 from inventory_toolkit.movement import MovementError, move_items, plan_movement
+from inventory_toolkit.repository import CatalogRepository
 from inventory_toolkit.packing import (
     PackingPlan,
     PackingPlanEntry,
@@ -44,6 +47,9 @@ SNAPSHOT_FILES = (
 )
 
 CATEGORY_TYPES = {
+    "activewear": {
+        "swim_trunks", "swimwear", "towel", "beach_towel",
+    },
     "tops": {
         "t_shirt", "shirt", "tank_top", "long_sleeve_shirt", "vest",
     },
@@ -61,11 +67,12 @@ CATEGORY_TYPES = {
         "hat", "beanie", "bandana", "scarf", "gloves", "neck_gaiter",
     },
     "essentials": {
-        "socks", "underwear", "towel", "beach_towel", "swim_trunks", "swimwear",
+        "socks", "underwear",
     },
 }
 
 CATEGORY_META = {
+    "activewear": ("Activewear & Other", "Swim, sport, towels, and travel extras"),
     "tops": ("Tops", "Everyday shirts and layers"),
     "bottoms": ("Bottoms", "Denim, shorts, and pants"),
     "outerwear": ("Outerwear", "Warm layers and jackets"),
@@ -185,8 +192,8 @@ def _trip(trip: Any) -> Dict[str, Any]:
     }
 
 
-def _trip_detail_payload(trip_id: str) -> Dict[str, Any]:
-    inventory, trip_catalog, plan_catalog, execution_catalog = _catalog_snapshot()
+def _trip_detail_payload(trip_id: str, snapshot: Optional[tuple] = None) -> Dict[str, Any]:
+    inventory, trip_catalog, plan_catalog, execution_catalog = snapshot or _catalog_snapshot()
     try:
         trip = trip_catalog.get(trip_id)
     except TripNotFoundError as exc:
@@ -239,11 +246,47 @@ class PackingActionRequest(BaseModel):
     confirmed: bool = False
 
 
-def _execution_for_trip(trip_id: str, plan_id: str, *, create: bool = False) -> Any:
+class PackingDecisionRequest(BaseModel):
+    section: str
+    entry_index: int = Field(ge=1)
+
+
+class PackingBatchRequest(BaseModel):
+    plan_id: str
+    decisions: list[PackingDecisionRequest] = Field(min_length=1)
+    confirmed: bool = False
+
+
+class PackingPlanItemRequest(BaseModel):
+    plan_id: str
+    item_id: str
+    container: str
+    reason: Optional[str] = None
+    confirmed: bool = False
+
+
+class PackingContainerRequest(BaseModel):
+    plan_id: str
+    section: str
+    entry_index: int = Field(ge=1)
+    container: str
+    confirmed: bool = False
+
+
+class PackingUnpackRequest(BaseModel):
+    plan_id: str
+    section: str
+    entry_index: int = Field(ge=1)
+    confirmed: bool = False
+
+
+def _execution_for_trip(
+    trip_id: str, plan_id: str, *, data_dir: Path, create: bool = False
+) -> Any:
     existing = next(
         (
             execution
-            for execution in load_trip_executions(_data_dir()).executions
+            for execution in load_trip_executions(data_dir).executions
             if execution.trip == trip_id
         ),
         None,
@@ -262,7 +305,7 @@ def _execution_for_trip(trip_id: str, plan_id: str, *, create: bool = False) -> 
         plan_id,
         confirmed=True,
         notes="Created from the LoadOut trip packing surface.",
-        data_dir=_data_dir(),
+        data_dir=data_dir,
     )
 
 
@@ -292,8 +335,40 @@ def _replace_draft_entry(
     )
 
 
-def create_app() -> FastAPI:
+def _editable_plan(plan: PackingPlan) -> PackingPlan:
+    if plan.status == "draft":
+        return plan
+    if plan.status != "confirmed":
+        raise PackingValidationError(
+            ["only draft or confirmed packing plans can be edited"]
+        )
+    return PackingPlan(
+        id="{}-ui-rev-{}".format(plan.id, uuid.uuid4().hex[:8]),
+        trip=plan.trip,
+        status="draft",
+        created_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        sections=plan.sections,
+        notes="UI revision of {}. {}".format(
+            plan.id, plan.notes or ""
+        ).strip(),
+    )
+
+
+def create_app(repository: Optional[CatalogRepository] = None) -> FastAPI:
     app = FastAPI(title="LoadOut API", version="0.1.0")
+
+    def catalog_snapshot() -> tuple:
+        return repository.snapshot().as_tuple() if repository is not None else _catalog_snapshot()
+
+    def durable_data_dir() -> Path:
+        if repository is None:
+            return _data_dir()
+        if repository.data_dir is None:
+            raise HTTPException(
+                status_code=501,
+                detail="This operation requires a durable catalog repository",
+            )
+        return repository.data_dir
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -314,12 +389,12 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health() -> Dict[str, str]:
-        load_inventory(_data_dir())
+        catalog_snapshot()
         return {"status": "ok", "mode": "local"}
 
     @app.get("/api/overview")
     def overview() -> Dict[str, Any]:
-        inventory = load_inventory(_data_dir())
+        inventory = catalog_snapshot()[0]
         locations = [
             _location(location, inventory.list_at_location(location.id))
             for location in inventory.locations
@@ -340,7 +415,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/locations/{location_id}")
     def location_detail(location_id: str) -> Dict[str, Any]:
-        inventory = load_inventory(_data_dir())
+        inventory = catalog_snapshot()[0]
         try:
             location = inventory.resolve_location(location_id)
         except LookupError as exc:
@@ -364,7 +439,7 @@ def create_app() -> FastAPI:
     @app.get("/api/items/{item_id}")
     def item_detail(item_id: str) -> Dict[str, Any]:
         try:
-            return _item(load_inventory(_data_dir()).resolve_item(item_id))
+            return _item(catalog_snapshot()[0].resolve_item(item_id))
         except LookupError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
@@ -375,7 +450,7 @@ def create_app() -> FastAPI:
         item_type: Optional[str] = ApiQuery(default=None, alias="type"),
         status: Optional[str] = None,
     ) -> Dict[str, Any]:
-        inventory = load_inventory(_data_dir())
+        inventory = catalog_snapshot()[0]
         try:
             items = inventory.find(Query(text=text, location=location, item_type=item_type, status=status))
         except (LookupError, ValueError) as exc:
@@ -385,14 +460,17 @@ def create_app() -> FastAPI:
     @app.post("/api/movements/preview")
     def preview_movement(request: MovementRequest) -> Dict[str, Any]:
         try:
-            plan = plan_movement(
-                request.item_ids,
-                request.source,
-                request.destination,
-                data_dir=_data_dir(),
-                reason=request.reason,
-                update_preferred=request.update_preferred,
-            )
+            if repository is not None:
+                plan = repository.preview_movement(
+                    request.item_ids, request.source, request.destination,
+                    reason=request.reason, update_preferred=request.update_preferred,
+                )
+            else:
+                plan = plan_movement(
+                    request.item_ids, request.source, request.destination,
+                    data_dir=durable_data_dir(), reason=request.reason,
+                    update_preferred=request.update_preferred,
+                )
         except (MovementError, LookupError) as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         return {"movement": _plain(plan), "requiresConfirmation": True}
@@ -402,18 +480,21 @@ def create_app() -> FastAPI:
         if not request.confirmed:
             raise HTTPException(status_code=428, detail="Explicit confirmation is required")
         try:
-            result = move_items(
-                request.item_ids,
-                request.source,
-                request.destination,
-                data_dir=_data_dir(),
-                reason=request.reason,
-                update_preferred=request.update_preferred,
-                confirmed=True,
-            )
+            if repository is not None:
+                result = repository.confirm_movement(
+                    request.item_ids, request.source, request.destination,
+                    reason=request.reason, update_preferred=request.update_preferred,
+                    confirmed=True,
+                )
+            else:
+                result = move_items(
+                    request.item_ids, request.source, request.destination,
+                    data_dir=durable_data_dir(), reason=request.reason,
+                    update_preferred=request.update_preferred, confirmed=True,
+                )
         except (MovementError, LookupError) as exc:
             raise HTTPException(status_code=409, detail=str(exc))
-        inventory = load_inventory(_data_dir())
+        inventory = catalog_snapshot()[0]
         return {
             "movement": _plain(result.plan),
             "applied": result.applied,
@@ -422,7 +503,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/trips")
     def trips() -> Dict[str, Any]:
-        _inventory, catalog, plans, executions = _catalog_snapshot()
+        _inventory, catalog, plans, executions = catalog_snapshot()
         return {
             "trips": [
                 {
@@ -443,12 +524,12 @@ def create_app() -> FastAPI:
 
     @app.get("/api/trips/{trip_id}")
     def trip_detail(trip_id: str) -> Dict[str, Any]:
-        return _trip_detail_payload(trip_id)
+        return _trip_detail_payload(trip_id, catalog_snapshot())
 
     @app.get("/api/trips/{trip_id}/packing-plans/{plan_id}/swap-candidates")
     def swap_candidates(trip_id: str, plan_id: str, item_id: str) -> Dict[str, Any]:
         try:
-            inventory, trip_catalog, plan_catalog, _executions = _catalog_snapshot()
+            inventory, trip_catalog, plan_catalog, _executions = catalog_snapshot()
             trip = trip_catalog.get(trip_id)
             plan = plan_catalog.get(plan_id)
             if plan.trip != trip.id:
@@ -480,6 +561,330 @@ def create_app() -> FastAPI:
         except PackingValidationError as exc:
             raise HTTPException(status_code=409, detail=" · ".join(exc.errors))
 
+    @app.post("/api/trips/{trip_id}/packing-plan-items")
+    def add_packing_plan_item(
+        trip_id: str, request: PackingPlanItemRequest
+    ) -> Dict[str, Any]:
+        if not request.confirmed:
+            raise HTTPException(status_code=428, detail="Explicit confirmation is required")
+        try:
+            inventory, trip_catalog, plan_catalog, _executions = catalog_snapshot()
+            trip = trip_catalog.get(trip_id)
+            plan = plan_catalog.get(request.plan_id)
+            if plan.trip != trip.id:
+                raise PackingValidationError(["packing plan does not belong to this trip"])
+            if request.container not in trip.luggage:
+                raise PackingValidationError(["container is not assigned to this trip"])
+            item = inventory.resolve_item(request.item_id)
+            if (item.status or "") in {"missing", "lost", "loaned", "repair", "discarded"}:
+                raise PackingValidationError(["item is not currently available for packing"])
+            if any(
+                entry.item == item.id
+                for entries in plan.sections.values()
+                for entry in entries
+            ):
+                raise PackingValidationError(["item is already in this packing plan"])
+            editable = _editable_plan(plan)
+            sections = {name: list(entries) for name, entries in editable.sections.items()}
+            sections["pack"].append(
+                PackingPlanEntry(
+                    item=item.id,
+                    requirement="manual_addition",
+                    leg=trip.legs[0].id if trip.legs else None,
+                    container=request.container,
+                    source=item.current_location,
+                    destination=None,
+                    quantity=1,
+                    reason=(request.reason or "Added manually from the trip packing surface.").strip(),
+                )
+            )
+            updated = replace(
+                editable,
+                sections={name: tuple(entries) for name, entries in sections.items()},
+            )
+            save_packing_plan(
+                updated,
+                replace_existing=updated.id == plan.id,
+                data_dir=durable_data_dir(),
+            )
+            return _trip_detail_payload(trip.id, catalog_snapshot())
+        except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except PackingValidationError as exc:
+            raise HTTPException(status_code=409, detail=" · ".join(exc.errors))
+
+    @app.post("/api/trips/{trip_id}/packing-plan-containers")
+    def change_packing_plan_container(
+        trip_id: str, request: PackingContainerRequest
+    ) -> Dict[str, Any]:
+        if not request.confirmed:
+            raise HTTPException(status_code=428, detail="Explicit confirmation is required")
+        try:
+            inventory, trip_catalog, plan_catalog, execution_catalog = catalog_snapshot()
+            trip = trip_catalog.get(trip_id)
+            plan = plan_catalog.get(request.plan_id)
+            if plan.trip != trip.id:
+                raise PackingValidationError(["packing plan does not belong to this trip"])
+            if request.container not in trip.luggage:
+                raise PackingValidationError(["container is not assigned to this trip"])
+            editable = _editable_plan(plan)
+            entries = editable.sections.get(request.section)
+            if entries is None or request.entry_index > len(entries):
+                raise PackingValidationError(
+                    ["unknown packing decision '{}:{}'".format(request.section, request.entry_index)]
+                )
+            entry = entries[request.entry_index - 1]
+            if entry.item is None:
+                raise PackingValidationError(["this packing decision has no physical item"])
+            if entry.container == request.container:
+                raise PackingValidationError(["choose a different container"])
+            updated = _replace_draft_entry(
+                editable,
+                request.section,
+                request.entry_index,
+                replace(entry, container=request.container),
+            )
+            item = inventory.resolve_item(entry.item)
+            execution = next(
+                (
+                    value for value in execution_catalog.executions
+                    if value.trip == trip.id
+                    and value.status in ("preparing", "in_progress", "reconciling")
+                ),
+                None,
+            )
+            was_packed = execution is not None and any(
+                action.item == item.id
+                and action.kind == "packed"
+                and action.state == "applied"
+                for action in execution.actions
+            )
+            if was_packed and item.current_location != request.container:
+                plan_movement(
+                    [item.id], item.current_location, request.container,
+                    data_dir=durable_data_dir(), reason="Trip packing container change preview.",
+                )
+            save_packing_plan(
+                updated,
+                replace_existing=updated.id == plan.id,
+                data_dir=durable_data_dir(),
+            )
+            if was_packed and item.current_location != request.container:
+                record_execution_action(
+                    execution.id,
+                    "ui-container-transfer-{}".format(uuid.uuid4().hex),
+                    "transferred",
+                    item=item.id,
+                    description="Changed packing container",
+                    source=item.current_location,
+                    destination=request.container,
+                    reason="Changed the assigned bag from the trip packing surface.",
+                    confirmed=True,
+                    data_dir=durable_data_dir(),
+                )
+            return _trip_detail_payload(trip.id, catalog_snapshot())
+        except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except (PackingValidationError, ExecutionValidationError, MovementError) as exc:
+            errors = getattr(exc, "errors", None)
+            raise HTTPException(status_code=409, detail=" · ".join(errors) if errors else str(exc))
+
+    @app.post("/api/trips/{trip_id}/packing-unpack")
+    def unpack_packing_item(
+        trip_id: str, request: PackingUnpackRequest
+    ) -> Dict[str, Any]:
+        if not request.confirmed:
+            raise HTTPException(status_code=428, detail="Explicit confirmation is required")
+        try:
+            inventory, trip_catalog, plan_catalog, execution_catalog = catalog_snapshot()
+            trip = trip_catalog.get(trip_id)
+            plan = plan_catalog.get(request.plan_id)
+            if plan.trip != trip.id:
+                raise PackingValidationError(["packing plan does not belong to this trip"])
+            entries = plan.sections.get(request.section)
+            if entries is None or request.entry_index > len(entries):
+                raise PackingValidationError(
+                    ["unknown packing decision '{}:{}'".format(request.section, request.entry_index)]
+                )
+            entry = entries[request.entry_index - 1]
+            if entry.item is None:
+                raise PackingValidationError(["this packing decision has no physical item"])
+            execution = next(
+                (
+                    value for value in execution_catalog.executions
+                    if value.trip == trip.id
+                    and value.status in ("preparing", "in_progress", "reconciling")
+                ),
+                None,
+            )
+            if execution is None:
+                raise ExecutionValidationError(["trip has no active execution"])
+            item = inventory.resolve_item(entry.item)
+            if item.current_location not in trip.luggage:
+                raise ExecutionValidationError(["item is not currently in trip luggage"])
+            original_source = next(
+                (
+                    action.source for action in execution.actions
+                    if action.item == item.id
+                    and action.kind == "packed"
+                    and action.state == "applied"
+                    and action.source is not None
+                    and action.source not in trip.luggage
+                ),
+                None,
+            )
+            if original_source is None:
+                raise ExecutionValidationError(
+                    ["packed item has no recorded pre-pack source"]
+                )
+            record_execution_action(
+                execution.id,
+                "ui-unpack-{}".format(uuid.uuid4().hex),
+                "returned",
+                item=item.id,
+                description="Unpacked during trip preparation",
+                source=item.current_location,
+                destination=original_source,
+                reason="Unpacked from the trip packing surface.",
+                confirmed=True,
+                data_dir=durable_data_dir(),
+            )
+            return _trip_detail_payload(trip.id, catalog_snapshot())
+        except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except (PackingValidationError, ExecutionValidationError, MovementError) as exc:
+            errors = getattr(exc, "errors", None)
+            raise HTTPException(status_code=409, detail=" · ".join(errors) if errors else str(exc))
+
+    @app.post("/api/trips/{trip_id}/packing-batch")
+    def packing_batch(trip_id: str, request: PackingBatchRequest) -> Dict[str, Any]:
+        if not request.confirmed:
+            raise HTTPException(status_code=428, detail="Explicit confirmation is required")
+        try:
+            inventory_snapshot, trip_catalog, plan_catalog, execution_catalog = catalog_snapshot()
+            trip = trip_catalog.get(trip_id)
+            plan = plan_catalog.get(request.plan_id)
+            if plan.trip != trip.id:
+                raise PackingValidationError(["packing plan does not belong to this trip"])
+            existing_execution = next(
+                (
+                    value for value in execution_catalog.executions
+                    if value.trip == trip.id
+                ),
+                None,
+            )
+            decisions = [
+                "{}:{}".format(value.section, value.entry_index)
+                for value in request.decisions
+            ]
+            if existing_execution is not None and existing_execution.packing_plan != plan.id:
+                if plan.status != "draft":
+                    raise ExecutionValidationError(
+                        ["active trip execution belongs to a different packing plan"]
+                    )
+                applied_decisions = []
+                failed_decisions = []
+                affected_item_ids = set()
+                execution = existing_execution
+                for requested, decision in zip(request.decisions, decisions):
+                    entries = plan.sections.get(requested.section)
+                    if (
+                        requested.section != "pack"
+                        or entries is None
+                        or requested.entry_index > len(entries)
+                    ):
+                        raise PackingValidationError(
+                            ["unknown physical pack decision {!r}".format(decision)]
+                        )
+                    entry = entries[requested.entry_index - 1]
+                    if entry.item is None or entry.container is None:
+                        raise PackingValidationError(
+                            ["decision {!r} is not a physical pack decision".format(decision)]
+                        )
+                    affected_item_ids.add(entry.item)
+                    item = load_inventory(durable_data_dir()).resolve_item(entry.item)
+                    if item.current_location == entry.container:
+                        failed_decisions.append(decision)
+                        continue
+                    source = item.current_location if item.current_location != entry.container else None
+                    destination = entry.container if source is not None else None
+                    try:
+                        execution = record_execution_action(
+                            execution.id,
+                            "ui-revision-pack-{}".format(uuid.uuid4().hex),
+                            "packed",
+                            item=entry.item,
+                            description=entry.requirement,
+                            leg=entry.leg,
+                            source=source,
+                            destination=destination,
+                            reason=(
+                                "Packed updated selection {} from draft plan {}."
+                                .format(decision, plan.id)
+                            ),
+                            confirmed=True,
+                            data_dir=durable_data_dir(),
+                        )
+                        applied_decisions.append(decision)
+                    except (ExecutionValidationError, MovementError):
+                        failed_decisions.append(decision)
+                        execution = load_trip_executions(durable_data_dir()).get(execution.id)
+                inventory = load_inventory(durable_data_dir())
+                return {
+                    "execution": _plain(execution),
+                    "items": [
+                        _item(item) for item in inventory.items
+                        if item.id in affected_item_ids
+                    ],
+                    "appliedDecisions": applied_decisions,
+                    "failedDecisions": failed_decisions,
+                }
+            if plan.status == "draft":
+                plan = confirm_packing_plan(plan.id, data_dir=durable_data_dir())
+                execution = existing_execution or create_trip_execution(
+                    "{}-execution".format(trip.id), trip.id, plan.id, confirmed=True,
+                    notes="Created from the LoadOut trip packing surface.", data_dir=durable_data_dir(),
+                )
+            else:
+                execution = existing_execution
+                if execution is None:
+                    execution = create_trip_execution(
+                        "{}-execution".format(trip.id),
+                        trip.id,
+                        plan.id,
+                        confirmed=True,
+                        notes="Created from the LoadOut trip packing surface.",
+                        data_dir=durable_data_dir(),
+                    )
+            result = confirm_packing_decisions(
+                execution.id,
+                "ui-pack-{}".format(uuid.uuid4().hex),
+                decisions,
+                confirmed=True,
+                reason="Packed selected items from the LoadOut trip packing surface.",
+                data_dir=durable_data_dir(),
+                execution_snapshot=execution,
+                plan_snapshot=plan,
+                inventory_snapshot=inventory_snapshot,
+            )
+            inventory = load_inventory(durable_data_dir())
+            moved_item_ids = {
+                action.item
+                for action in result.execution.actions
+                if action.decision in result.applied_decisions and action.item is not None
+            }
+            return {
+                "execution": _plain(result.execution),
+                "items": [_item(item) for item in inventory.items if item.id in moved_item_ids],
+                "appliedDecisions": list(result.applied_decisions),
+                "failedDecisions": list(result.failed_decisions),
+            }
+        except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
+            raise HTTPException(status_code=404, detail=str(exc))
+        except (PackingValidationError, ExecutionValidationError, MovementError) as exc:
+            errors = getattr(exc, "errors", None)
+            raise HTTPException(status_code=409, detail=" · ".join(errors) if errors else str(exc))
+
     @app.post("/api/trips/{trip_id}/packing-actions")
     def packing_action(trip_id: str, request: PackingActionRequest) -> Dict[str, Any]:
         if not request.confirmed:
@@ -492,8 +897,8 @@ def create_app() -> FastAPI:
                 detail="Swap notes are required so the decision can inform future recommendations",
             )
         try:
-            trip = load_trips(_data_dir()).get(trip_id)
-            plan = load_packing_plan(request.plan_id, _data_dir())
+            trip = load_trips(durable_data_dir()).get(trip_id)
+            plan = load_packing_plan(request.plan_id, durable_data_dir())
             if plan.trip != trip.id:
                 raise PackingValidationError(["packing plan does not belong to this trip"])
             entries = plan.sections.get(request.section)
@@ -508,15 +913,15 @@ def create_app() -> FastAPI:
 
             if request.action == "remove" and plan.status == "draft":
                 updated = _replace_draft_entry(plan, request.section, request.entry_index, None)
-                save_packing_plan(updated, replace_existing=True, data_dir=_data_dir())
-                return _trip_detail_payload(trip_id)
+                save_packing_plan(updated, replace_existing=True, data_dir=durable_data_dir())
+                return _trip_detail_payload(trip_id, catalog_snapshot())
 
             replacement_item = None
             if request.action == "swap":
                 swap_notes = request.notes.strip()
                 if not request.replacement_item_id:
                     raise PackingValidationError(["a replacement item is required for swap"])
-                replacement_item = load_inventory(_data_dir()).resolve_item(request.replacement_item_id)
+                replacement_item = load_inventory(durable_data_dir()).resolve_item(request.replacement_item_id)
                 if replacement_item.id == entry.item:
                     raise PackingValidationError(["choose a different replacement item"])
                 if any(
@@ -537,12 +942,17 @@ def create_app() -> FastAPI:
                     updated = _replace_draft_entry(
                         plan, request.section, request.entry_index, updated_entry
                     )
-                    save_packing_plan(updated, replace_existing=True, data_dir=_data_dir())
-                    return _trip_detail_payload(trip_id)
+                    save_packing_plan(updated, replace_existing=True, data_dir=durable_data_dir())
+                    return _trip_detail_payload(trip_id, catalog_snapshot())
 
+            execution = _execution_for_trip(
+                trip.id, plan.id, data_dir=durable_data_dir(), create=False
+            )
             if plan.status == "draft":
-                plan = confirm_packing_plan(plan.id, data_dir=_data_dir())
-            execution = _execution_for_trip(trip.id, plan.id, create=True)
+                plan = confirm_packing_plan(plan.id, data_dir=durable_data_dir())
+            execution = execution or _execution_for_trip(
+                trip.id, plan.id, data_dir=durable_data_dir(), create=True
+            )
             if any(action.decision == decision for action in execution.actions):
                 raise ExecutionValidationError(["this packing decision already has an outcome"])
 
@@ -554,7 +964,7 @@ def create_app() -> FastAPI:
                     accepted=True,
                     confirmed=True,
                     reason="Packed from the LoadOut trip packing surface.",
-                    data_dir=_data_dir(),
+                    data_dir=durable_data_dir(),
                 )
             elif request.action == "remove":
                 confirm_packing_decision(
@@ -564,7 +974,7 @@ def create_app() -> FastAPI:
                     accepted=False,
                     confirmed=True,
                     reason="Removed while reviewing the packing list.",
-                    data_dir=_data_dir(),
+                    data_dir=durable_data_dir(),
                 )
             else:
                 assert replacement_item is not None
@@ -574,7 +984,7 @@ def create_app() -> FastAPI:
                     [replacement_item.id],
                     replacement_item.current_location,
                     entry.container,
-                    data_dir=_data_dir(),
+                    data_dir=durable_data_dir(),
                     reason="Packing-list swap preview.",
                 )
                 confirm_packing_decision(
@@ -586,7 +996,7 @@ def create_app() -> FastAPI:
                     reason="Replaced by {} while packing. Swap note: {}".format(
                         replacement_item.name, swap_notes
                     ),
-                    data_dir=_data_dir(),
+                    data_dir=durable_data_dir(),
                 )
                 record_execution_action(
                     execution.id,
@@ -601,9 +1011,9 @@ def create_app() -> FastAPI:
                         entry.item, swap_notes
                     ),
                     confirmed=True,
-                    data_dir=_data_dir(),
+                    data_dir=durable_data_dir(),
                 )
-            return _trip_detail_payload(trip_id)
+            return _trip_detail_payload(trip_id, catalog_snapshot())
         except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
             raise HTTPException(status_code=404, detail=str(exc))
         except (PackingValidationError, ExecutionValidationError, MovementError) as exc:

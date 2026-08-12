@@ -94,7 +94,10 @@ Runtime files live in `data/`:
 | `packing_plans.yaml` | Recommendation-only plans | **Ignored** |
 | `trip_executions.yaml` | Confirmed actions and reconciliation history | **Ignored** |
 
-The sanitized files in `data/examples/` are safe starter templates. Copy them into `data/`, then replace the example records with your own local information.
+The sanitized files in `data/examples/` form a safe, complete starter catalog:
+representative possessions, a three-leg trip, all nine packing-plan sections,
+and a partial execution ledger. Copy them into `data/`, then replace the
+example records with your own local information.
 
 ## Safety model
 
@@ -142,15 +145,33 @@ Run `inventory --help` or `inventory <command> --help` for the full command surf
 ## Development
 
 ```sh
-# Python tests (when using a sanitized test fixture suite)
+# Fast generalized suite: in-memory domain/API coverage plus five YAML workflows
 ./.venv/bin/pytest
+
+# Only the durable YAML end-to-end contracts
+./.venv/bin/pytest -m e2e
+
+# Optional read-only compatibility check against your local catalog
+./.venv/bin/pytest -o addopts=-q -m personal_data
+
+# Historical tests coupled to the original private catalog (normally skipped)
+./.venv/bin/pytest -o addopts=-q -m legacy_personal
 
 # Frontend type-check and production build
 cd web
 npm run build
 ```
 
-The current personalized `tests/` and detailed trip notes in `docs/` are intentionally ignored. Before publishing either directory, replace all real locations, dates, names, item IDs, and itinerary details with synthetic fixtures.
+The default suite is intentionally independent of the local wardrobe. It uses
+the complete synthetic lifecycle in `data/examples/`, an injected in-memory
+repository for domain and API tests, property-based invariant checks, and five
+marked YAML adapter workflows. Pytest prints the ten slowest cases on every
+run. The only default-excluded checks are the read-only local compatibility
+smoke test and superseded historical tests tied to a private catalog.
+
+The detailed trip notes in `docs/` remain intentionally ignored. Before
+publishing that directory, replace all real locations, dates, names, item IDs,
+and itinerary details with synthetic fixtures.
 
 ## Privacy guidelines
 

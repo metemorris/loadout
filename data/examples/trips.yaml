@@ -1,1 +1,102 @@
-trips: []
+trips:
+- id: sample-trip
+  name: Example Coast and City Trip
+  status: planned
+  start_date: '2025-06-01'
+  end_date: '2025-06-08'
+  places:
+  - id: example-coast
+    name: Example Coast
+    notes: Synthetic beach destination.
+  - id: example-city
+    name: Example City Center
+    notes: Synthetic formal-event destination.
+  legs:
+  - id: home-to-coast
+    origin: home
+    destination: example-coast
+    departure: '2025-06-01'
+    arrival: '2025-06-01'
+    transport_notes: Synthetic outbound rail journey.
+  - id: coast-to-city
+    origin: example-coast
+    destination: example-city
+    departure: '2025-06-04'
+    arrival: '2025-06-04'
+    transport_notes: Synthetic intercity journey.
+  - id: city-to-home
+    origin: example-city
+    destination: home
+    departure: '2025-06-08'
+    arrival: '2025-06-08'
+    transport_notes: Synthetic return journey.
+  luggage: [suitcase, carry-on]
+  attachments:
+  - id: coast-swimming
+    kind: activity
+    name: Coast swimming
+    type: swimming
+    leg: null
+    location: example-coast
+    date: '2025-06-02'
+    frequency: 1
+    requirements:
+      add: []
+      add_optional: [swimwear]
+      remove: []
+      remove_optional: []
+    notes: Synthetic optional swim.
+  - id: city-formal-event
+    kind: event
+    name: City formal event
+    type: wedding
+    leg: null
+    location: example-city
+    date: '2025-06-06'
+    frequency: 1
+    requirements:
+      add: []
+      add_optional: []
+      remove: []
+      remove_optional: []
+    notes: Synthetic formal event.
+  planning:
+    legs:
+    - leg: home-to-coast
+      activities_complete: true
+      laundry_available: false
+      weather:
+        summary: Warm with occasional rain
+        low_c: 17
+        high_c: 27
+        precipitation: possible
+        source: synthetic fixture
+        checked_at: '2025-05-25T12:00:00Z'
+      context: [Beach walking and casual dinners.]
+      notes: Synthetic planning context.
+    - leg: coast-to-city
+      activities_complete: true
+      laundry_available: true
+      weather:
+        summary: Mild and dry
+        low_c: 15
+        high_c: 24
+        precipitation: unlikely
+        source: synthetic fixture
+        checked_at: '2025-05-25T12:00:00Z'
+      context: [One formal event and ordinary city walking.]
+      notes: Synthetic planning context.
+    - leg: city-to-home
+      activities_complete: true
+      laundry_available: false
+      weather:
+        summary: Mild travel day
+        low_c: 14
+        high_c: 22
+        precipitation: unlikely
+        source: synthetic fixture
+        checked_at: '2025-05-25T12:00:00Z'
+      context: [Return travel day.]
+      notes: Synthetic planning context.
+    notes: All planning facts are synthetic and complete.
+  notes: Public example trip used by documentation and tests.
