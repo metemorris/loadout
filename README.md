@@ -1,26 +1,60 @@
 <p align="center">
-  <img src="./logo.svg" width="128" alt="LoadOut logo" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="./logo-light.svg">
+    <img src="./logo-light.svg" width="112" alt="LoadOut logo">
+  </picture>
 </p>
 
 <h1 align="center">LoadOut</h1>
 
 <p align="center">
-  Local-first wardrobe inventory, trip planning, and packing execution.
+  <strong>Your wardrobe, mapped from closet to carry-on.</strong><br>
+  Local-first inventory, explainable trip planning, and confirmed packing execution.
 </p>
 
-<p align="center"><strong>Version 0.3.0</strong></p>
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#cli">CLI</a> ·
+  <a href="#development">Development</a>
+</p>
 
-LoadOut tracks individual possessions across homes and travel containers, turns trip requirements into explainable packing candidates, and keeps recommendations separate from what physically happened. It includes a React interface, a FastAPI service, and a Python CLI backed by human-readable YAML.
+<p align="center">
+  <img alt="Python 3.9+" src="https://img.shields.io/badge/Python-3.9%2B-111111?style=flat-square&logo=python&logoColor=white">
+  <img alt="React 19" src="https://img.shields.io/badge/React-19-111111?style=flat-square&logo=react&logoColor=white">
+  <img alt="MIT license" src="https://img.shields.io/badge/License-MIT-111111?style=flat-square">
+  <img alt="Version 0.3.0" src="https://img.shields.io/badge/version-0.3.0-111111?style=flat-square">
+</p>
 
-## Screenshots
+LoadOut is a self-hosted toolkit for tracking individual possessions, building packing plans from real trip requirements, and recording what actually happened. The React app, FastAPI service, and Python CLI all operate on readable YAML stored on your machine.
 
-The UI below is rendered exclusively from the sanitized catalog in `data/examples/`.
+## At a glance
 
-![LoadOut wardrobe overview](./assets/screenshots/wardrobe-overview.jpg)
+| Inventory | Planning | Execution |
+| --- | --- | --- |
+| Track each physical item, its condition, current location, and preferred home. | Turn itineraries, weather, activities, and laundry access into reasoned candidates. | Confirm every state change and retain packed, used, returned, lost, or damaged outcomes. |
 
-![LoadOut item drawer](./assets/screenshots/item-drawer.jpg)
+## Product tour
 
-![LoadOut trip packing interface](./assets/screenshots/trip-packing.jpg)
+<table>
+  <tr>
+    <td width="50%"><img src="./assets/screenshots/wardrobe-overview.jpg" alt="Wardrobe overview"></td>
+    <td width="50%"><img src="./assets/screenshots/item-drawer.jpg" alt="Item detail drawer"></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>See the whole wardrobe</strong></td>
+    <td align="center"><strong>Inspect every physical item</strong></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="./assets/screenshots/trip-packing.jpg" alt="Trip packing interface"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><strong>Plan a trip without pretending the bag is already packed</strong></td>
+  </tr>
+</table>
+
+> The interface shown here uses only the sanitized catalog in [`data/examples/`](./data/examples/).
 
 ## Why LoadOut
 
@@ -31,7 +65,7 @@ The UI below is rendered exclusively from the sanitized catalog in `data/example
 - **Keep an audit trail.** Packed, used, unused, rejected, transferred, purchased, damaged, discarded, lost, returned, and destination-stay outcomes are recorded explicitly.
 - **Own your data.** The app runs locally and stores records as YAML. Personal runtime files are ignored by Git by default.
 
-## Architecture
+## How it works
 
 ```text
 React + Vite (web/)  ->  FastAPI (api/)  ->  inventory_toolkit/  ->  YAML (data/)

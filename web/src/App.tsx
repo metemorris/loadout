@@ -111,8 +111,11 @@ function useServerData() {
 function Brand() {
   return (
     <div className="brand">
-      <div className="brand-name">LoadOut</div>
-      <div className="brand-subtitle">Wardrobe logistics</div>
+      <img className="brand-mark" src="/logo.svg" alt="" />
+      <div className="brand-copy">
+        <div className="brand-name">LoadOut</div>
+        <div className="brand-subtitle">Wardrobe logistics</div>
+      </div>
     </div>
   )
 }
