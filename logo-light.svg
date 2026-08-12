@@ -8,12 +8,7 @@
   <title id="title">LoadOut logo mark</title>
   <desc id="desc">A minimal hanger integrated with an angular letter L, representing wardrobe logistics.</desc>
 
-  <style>
-    :root { color: #111315; }
-    @media (prefers-color-scheme: dark) {
-      :root { color: #f7f7f5; }
-    }
-  </style>
+  <style>:root { color: #111315; }</style>
   <g fill="none"
      stroke="currentColor"
      stroke-width="20"
