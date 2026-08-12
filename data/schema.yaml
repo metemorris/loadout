@@ -46,6 +46,45 @@ definitions:
     - underwear
     - vest
     - zip_up
+  type_defaults:
+    athletic_shoes: {default_space_liters: 5.0, default_weight_kg: 0.7}
+    bandana: {default_space_liters: 0.15, default_weight_kg: 0.05}
+    beach_towel: {default_space_liters: 3.0, default_weight_kg: 0.5}
+    beanie: {default_space_liters: 0.6, default_weight_kg: 0.1}
+    belt: {default_space_liters: 0.5, default_weight_kg: 0.2}
+    boots: {default_space_liters: 8.0, default_weight_kg: 1.4}
+    dress_shoes: {default_space_liters: 6.0, default_weight_kg: 1.0}
+    flip_flops: {default_space_liters: 2.0, default_weight_kg: 0.3}
+    gloves: {default_space_liters: 0.5, default_weight_kg: 0.12}
+    hat: {default_space_liters: 1.2, default_weight_kg: 0.1}
+    hoodie: {default_space_liters: 3.0, default_weight_kg: 0.6}
+    jacket: {default_space_liters: 4.0, default_weight_kg: 0.7}
+    jeans: {default_space_liters: 2.5, default_weight_kg: 0.7}
+    long_sleeve_shirt: {default_space_liters: 1.5, default_weight_kg: 0.25}
+    neck_gaiter: {default_space_liters: 0.3, default_weight_kg: 0.06}
+    robe: {default_space_liters: 4.0, default_weight_kg: 0.7}
+    scarf: {default_space_liters: 0.8, default_weight_kg: 0.15}
+    shirt: {default_space_liters: 1.3, default_weight_kg: 0.2}
+    shoes: {default_space_liters: 5.0, default_weight_kg: 0.8}
+    shorts: {default_space_liters: 1.5, default_weight_kg: 0.35}
+    soccer_shoes: {default_space_liters: 6.0, default_weight_kg: 0.8}
+    socks: {default_space_liters: 0.2, default_weight_kg: 0.06}
+    sports_shorts: {default_space_liters: 1.0, default_weight_kg: 0.2}
+    suit: {default_space_liters: 6.0, default_weight_kg: 1.2}
+    suit_jacket: {default_space_liters: 4.0, default_weight_kg: 0.7}
+    sweater: {default_space_liters: 3.0, default_weight_kg: 0.5}
+    sweatpants: {default_space_liters: 2.5, default_weight_kg: 0.5}
+    swim_trunks: {default_space_liters: 0.8, default_weight_kg: 0.2}
+    swimwear: {default_space_liters: 0.8, default_weight_kg: 0.2}
+    tank_top: {default_space_liters: 0.8, default_weight_kg: 0.15}
+    thermal_pants: {default_space_liters: 1.0, default_weight_kg: 0.25}
+    tie: {default_space_liters: 0.2, default_weight_kg: 0.08}
+    t_shirt: {default_space_liters: 1.0, default_weight_kg: 0.2}
+    towel: {default_space_liters: 2.5, default_weight_kg: 0.45}
+    tuxedo: {default_space_liters: 7.0, default_weight_kg: 1.4}
+    underwear: {default_space_liters: 0.3, default_weight_kg: 0.08}
+    vest: {default_space_liters: 1.5, default_weight_kg: 0.3}
+    zip_up: {default_space_liters: 3.0, default_weight_kg: 0.55}
   allowed_uses:
     - beach
     - camping
@@ -181,3 +220,4 @@ locations:
   allowed_kinds: [home, travel_container]
   required_by_kind:
     home: [city, country]
+    travel_container: [capacity_liters, max_load_kg]

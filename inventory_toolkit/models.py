@@ -22,6 +22,17 @@ class Location:
     city: Optional[str] = None
     region: Optional[str] = None
     country: Optional[str] = None
+    capacity_liters: Optional[float] = None
+    max_load_kg: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class ItemTypeDefaults:
+    """Rough packing estimates shared by every item of one inventory type."""
+
+    item_type: str
+    default_space_liters: float
+    default_weight_kg: float
 
 
 @dataclass(frozen=True)
@@ -46,6 +57,7 @@ class ItemDefinition:
     uses: Tuple[str, ...]
     notes: Optional[str]
     sources: Tuple[InventorySource, ...]
+    type_defaults: Optional[ItemTypeDefaults] = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +113,16 @@ class PhysicalItem:
         """Compatibility alias for the current location."""
         return self.current_location
 
+    @property
+    def estimated_space_liters(self) -> float:
+        defaults = self.definition.type_defaults
+        return defaults.default_space_liters if defaults is not None else 0.0
+
+    @property
+    def estimated_weight_kg(self) -> float:
+        defaults = self.definition.type_defaults
+        return defaults.default_weight_kg if defaults is not None else 0.0
+
 
 # Kept as an import-compatible alias; inventory records now represent physical
 # items and contain no quantity field.
@@ -139,6 +161,20 @@ class LocationSummary:
     by_use: Mapping[str, InventoryCount]
     by_condition: Mapping[str, InventoryCount]
     by_status: Mapping[str, InventoryCount]
+
+
+@dataclass(frozen=True)
+class CapacityEstimate:
+    """A rough container estimate based on item-type defaults, not measurements."""
+
+    location: Location
+    item_count: int
+    estimated_space_liters: float
+    estimated_weight_kg: float
+    remaining_space_liters: Optional[float]
+    remaining_load_kg: Optional[float]
+    space_utilization_percent: Optional[float]
+    load_utilization_percent: Optional[float]
 
 
 @dataclass(frozen=True)

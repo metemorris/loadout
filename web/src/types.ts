@@ -11,6 +11,17 @@ export interface LocationSummary {
   itemCount: number
   definitionCount: number
   categoryCounts: Record<string, number>
+  capacity: {
+    capacityLiters: number | null
+    maxLoadKg: number | null
+    estimatedUsedSpaceLiters: number
+    estimatedLoadKg: number
+    remainingSpaceLiters: number | null
+    remainingLoadKg: number | null
+    spaceUtilizationPercent: number | null
+    loadUtilizationPercent: number | null
+    basis: 'rough_item_type_defaults'
+  } | null
 }
 
 export interface InventoryItem {
@@ -28,6 +39,8 @@ export interface InventoryItem {
   status: string | null
   notes: string | null
   movements: Array<{ timestamp: string; source: string; destination: string; reason: string | null }>
+  estimatedSpaceLiters: number
+  estimatedWeightKg: number
 }
 
 export interface CategoryGroup {

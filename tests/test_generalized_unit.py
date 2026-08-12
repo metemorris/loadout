@@ -56,3 +56,13 @@ def test_in_memory_move_rejects_a_stale_source(example_repository):
         example_repository.confirm_movement(
             ["home-white-t-shirt"], "home", "carry-on", confirmed=True
         )
+
+
+def test_container_capacity_uses_item_type_defaults(example_repository):
+    inventory = example_repository.snapshot().inventory
+    estimate = inventory.estimate_container_capacity("suitcase")
+    assert estimate.item_count == 2
+    assert estimate.estimated_space_liters == 3.5
+    assert estimate.estimated_weight_kg == 0.65
+    assert estimate.remaining_space_liters == 86.5
+    assert estimate.space_utilization_percent == 3.9

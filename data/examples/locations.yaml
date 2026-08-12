@@ -10,11 +10,15 @@
 - id: suitcase
   name: Suitcase
   kind: travel_container
+  capacity_liters: 90
+  max_load_kg: 23
   aliases: [checked-bag]
   notes: null
 
 - id: carry-on
   name: Carry-on
   kind: travel_container
+  capacity_liters: 40
+  max_load_kg: 10
   aliases: [cabin-bag]
   notes: null

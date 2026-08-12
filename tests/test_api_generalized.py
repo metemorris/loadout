@@ -26,6 +26,18 @@ def test_trip_detail_exposes_all_plan_sections_and_execution(client):
     assert payload["plans"][0]["id"] == "sample-trip-plan"
     assert len(payload["plans"][0]["sections"]) == 9
     assert payload["executions"][0]["id"] == "sample-trip-execution"
+    suitcase = next(value for value in payload["containers"] if value["id"] == "suitcase")
+    assert suitcase["capacity"] == {
+        "capacityLiters": 90,
+        "maxLoadKg": 23,
+        "estimatedUsedSpaceLiters": 3.5,
+        "estimatedLoadKg": 0.65,
+        "remainingSpaceLiters": 86.5,
+        "remainingLoadKg": 22.35,
+        "spaceUtilizationPercent": 3.9,
+        "loadUtilizationPercent": 2.8,
+        "basis": "rough_item_type_defaults",
+    }
 
 
 def test_activewear_bucket_contains_synthetic_swimwear(client):

@@ -39,12 +39,14 @@ from .execution import (
     review_reconciliation,
 )
 from .models import (
+    CapacityEstimate,
     DuplicateCandidate,
     InventoryComparison,
     InventoryCount,
     InventoryItem,
     InventorySource,
     ItemDefinition,
+    ItemTypeDefaults,
     Location,
     LocationSummary,
     Movement,
@@ -136,6 +138,7 @@ from .trips import (
 )
 
 __all__ = [
+    "CapacityEstimate",
     "DuplicateCandidate",
     "ConfirmationRequiredError",
     "CategoryRequirement",
@@ -161,6 +164,7 @@ __all__ = [
     "MatcherClause",
     "MissingPlanningInformation",
     "ItemDefinition",
+    "ItemTypeDefaults",
     "PhysicalItem",
     "PhysicalItemNotFoundError",
     "PlanningBlocker",
