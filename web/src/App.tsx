@@ -153,6 +153,12 @@ function LocationIcon({ location }: { location: LocationSummary }) {
   return location.kind === 'home' ? <House size={19} strokeWidth={1.55} /> : <Luggage size={19} strokeWidth={1.55} />
 }
 
+function containerCapacityLabel(location: LocationSummary) {
+  const capacity = location.capacity
+  if (!capacity || capacity.capacityLiters === null || capacity.maxLoadKg === null) return 'Capacity unavailable'
+  return `${capacity.estimatedUsedSpaceLiters} / ${capacity.capacityLiters} L · ${capacity.estimatedLoadKg} / ${capacity.maxLoadKg} kg`
+}
+
 function DroppableLocation({ location, active, onSelect, dragging }: {
   location: LocationSummary
   active: boolean
@@ -169,7 +175,7 @@ function DroppableLocation({ location, active, onSelect, dragging }: {
       <LocationIcon location={location} />
       <span>
         <strong>{location.name}</strong>
-        <small>{location.itemCount} items · {location.kind === 'home' ? 'Home' : 'Travel container'}</small>
+        <small>{location.kind === 'home' ? `${location.itemCount} items · Home` : `${location.itemCount} items · ${containerCapacityLabel(location)}`}</small>
       </span>
       {isOver && <span className="drop-label">Move here</span>}
     </button>
@@ -184,7 +190,7 @@ function Sidebar({ overview, selectedId, onSelect, mode, dragging }: {
   dragging: boolean
 }) {
   const homes = overview.locations.filter(location => location.kind === 'home')
-  const containers = overview.locations.filter(location => location.kind === 'travel_container')
+  const containers = overview.locations.filter(location => location.kind === 'travel_container' && location.itemCount > 0)
   const primaryHome = [...homes].sort((a, b) => b.itemCount - a.itemCount)[0]
   return (
     <aside className="sidebar">
@@ -826,7 +832,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
             <div className="container-grid">
               {visibleContainers.map(container => (
                 <button key={container.id} className={selectedContainer?.id === container.id ? 'container-card active' : 'container-card'} onClick={() => setSelectedContainerId(container.id)}>
-                  <div className="container-card-title"><div><strong>{container.name}</strong><small>{container.itemCount} physical items</small></div>{selectedContainer?.id === container.id && <span className="selected-check"><Check size={14} /></span>}</div>
+                  <div className="container-card-title"><div><strong>{container.name}</strong><small>{container.itemCount} physical items</small><small className="container-card-capacity">{containerCapacityLabel(container)}</small></div>{selectedContainer?.id === container.id && <span className="selected-check"><Check size={14} /></span>}</div>
                   <ContainerVisual detail={containerDetails[container.id]} />
                   <div className={container.itemCount ? 'container-status active' : 'container-status'}><Check size={15} /> {container.itemCount ? 'Contains items' : 'Empty'}</div>
                 </button>
@@ -870,10 +876,12 @@ function TripTimeline({ trip }: { trip: TripSummary }) {
 }
 
 function ContainerInspector({ container, detail }: { container: LocationSummary; detail?: LocationDetail }) {
+  const capacity = container.capacity
+  const fill = Math.min(100, Math.max(0, capacity?.spaceUtilizationPercent || 0))
   return (
     <aside className="container-inspector">
       <div className="inspector-title"><Luggage size={21} /><div><h2>{container.name}</h2><p>Physical container location</p></div><Star size={17} /></div>
-      <section><h3>Current state</h3><div className="inspector-stat"><strong>{container.itemCount}</strong><span>items currently inside</span></div><div className="simple-meter"><span style={{ width: `${Math.min(100, container.itemCount * 4)}%` }} /></div><small>Capacity is not tracked in the inventory model.</small></section>
+      <section><h3>Rough capacity</h3><div className="inspector-stat"><strong>{capacity ? `${capacity.estimatedUsedSpaceLiters} L` : '—'}</strong><span>{capacity?.capacityLiters ? `of ${capacity.capacityLiters} L estimated` : 'capacity not configured'}</span></div><div className="simple-meter"><span style={{ width: `${fill}%` }} /></div>{capacity && <><div className="breakdown-row"><span>Space remaining</span><strong>{capacity.remainingSpaceLiters} L</strong></div><div className="breakdown-row"><span>Estimated load</span><strong>{capacity.estimatedLoadKg} / {capacity.maxLoadKg} kg</strong></div></>}<small>Uses compressed-volume and weight defaults by item type; non-inventory contents and the bag itself are excluded.</small></section>
       <section><h3>Contents breakdown</h3>{detail?.categories.length ? detail.categories.map(group => <div className="breakdown-row" key={group.id}><span><Shirt size={15} /> {group.name}</span><strong>{group.count}</strong></div>) : <p className="muted">No physical items in this container.</p>}</section>
       <section><h3>Status</h3><div className={container.itemCount ? 'truth-status active' : 'truth-status'}><Check size={16} /> {container.itemCount ? 'Items physically present' : 'Empty location'}</div><small>Recommendations and accepted plans do not affect this count.</small></section>
     </aside>

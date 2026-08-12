@@ -17,6 +17,7 @@ except ImportError as exc:  # pragma: no cover - exercised only before installat
 from .models import (
     AttributeValue,
     InventorySource,
+    ItemTypeDefaults,
     ItemDefinition,
     Location,
     Movement,
@@ -27,7 +28,10 @@ from .query import Inventory
 
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
-LOCATION_FIELDS = {"id", "name", "kind", "city", "region", "country", "aliases", "notes"}
+LOCATION_FIELDS = {
+    "id", "name", "kind", "city", "region", "country", "aliases", "notes",
+    "capacity_liters", "max_load_kg",
+}
 DEFINITION_FIELDS = {"id", "name", "type", "attributes", "use", "notes", "sources"}
 SOURCE_FIELDS = {"id", "original_location", "original_quantity", "original_condition", "notes"}
 INSTANCE_FIELDS = {
@@ -77,6 +81,13 @@ def _optional_string(value: Any, label: str, errors: List[str]) -> bool:
     valid = value is None or (isinstance(value, str) and bool(value.strip()))
     if not valid:
         errors.append("{} must be a non-empty string or null".format(label))
+    return valid
+
+
+def _positive_number(value: Any, label: str, errors: List[str]) -> bool:
+    valid = isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+    if not valid:
+        errors.append("{} must be a positive number".format(label))
     return valid
 
 
@@ -162,6 +173,9 @@ def _validate_locations(
         for field in ("city", "region", "country"):
             if field in value:
                 valid &= _optional_string(value.get(field), "{}.{}".format(label, field), errors)
+        for field in ("capacity_liters", "max_load_kg"):
+            if field in value:
+                valid &= _positive_number(value.get(field), "{}.{}".format(label, field), errors)
         kind_required = required_by_kind.get(kind, []) if isinstance(required_by_kind, dict) else []
         if not isinstance(kind_required, list):
             errors.append("schema.yaml: locations.required_by_kind.{} must be a list".format(kind))
@@ -184,6 +198,8 @@ def _validate_locations(
                     country=value.get("country"),
                     aliases=tuple(value["aliases"]),
                     notes=value["notes"],
+                    capacity_liters=value.get("capacity_liters"),
+                    max_load_kg=value.get("max_load_kg"),
                 )
             )
     return tuple(locations), frozenset(seen)
@@ -216,6 +232,7 @@ def _validate_definitions(
     source_required: Sequence[str],
     allowed_types: frozenset,
     allowed_uses: frozenset,
+    type_defaults: Mapping[str, ItemTypeDefaults],
     location_ids: frozenset,
     errors: List[str],
 ) -> Tuple[Tuple[ItemDefinition, ...], Mapping[str, ItemDefinition], Mapping[str, Tuple[str, int, str]]]:
@@ -314,6 +331,7 @@ def _validate_definitions(
                     uses=tuple(value["use"]),
                     notes=value["notes"],
                     sources=tuple(sources),
+                    type_defaults=type_defaults.get(item_type),
                 )
             )
 
@@ -527,12 +545,52 @@ def load_inventory(data_dir: Optional[Path] = None) -> Inventory:
     definition_schema = schema.get("definitions") if isinstance(schema.get("definitions"), dict) else {}
     raw_types = definition_schema.get("allowed_types")
     raw_uses = definition_schema.get("allowed_uses")
+    raw_type_defaults = definition_schema.get("type_defaults")
     if not isinstance(raw_types, list) or not all(isinstance(value, str) for value in raw_types):
         errors.append("schema.yaml: definitions.allowed_types must be a list of strings")
         raw_types = []
     if not isinstance(raw_uses, list) or not all(isinstance(value, str) for value in raw_uses):
         errors.append("schema.yaml: definitions.allowed_uses must be a list of strings")
         raw_uses = []
+    type_defaults: Dict[str, ItemTypeDefaults] = {}
+    if not isinstance(raw_type_defaults, dict):
+        errors.append("schema.yaml: definitions.type_defaults must be a mapping")
+        raw_type_defaults = {}
+    unknown_default_types = set(raw_type_defaults) - set(raw_types)
+    missing_default_types = set(raw_types) - set(raw_type_defaults)
+    if unknown_default_types:
+        errors.append(
+            "schema.yaml: definitions.type_defaults has unknown types: {}".format(
+                ", ".join(sorted(unknown_default_types))
+            )
+        )
+    if missing_default_types:
+        errors.append(
+            "schema.yaml: definitions.type_defaults missing types: {}".format(
+                ", ".join(sorted(missing_default_types))
+            )
+        )
+    for item_type, defaults in raw_type_defaults.items():
+        label = "schema.yaml: definitions.type_defaults.{}".format(item_type)
+        if not isinstance(defaults, dict) or set(defaults) != {
+            "default_space_liters", "default_weight_kg"
+        }:
+            errors.append(
+                "{} must contain only default_space_liters and default_weight_kg".format(label)
+            )
+            continue
+        valid_defaults = _positive_number(
+            defaults.get("default_space_liters"), "{}.default_space_liters".format(label), errors
+        )
+        valid_defaults &= _positive_number(
+            defaults.get("default_weight_kg"), "{}.default_weight_kg".format(label), errors
+        )
+        if valid_defaults:
+            type_defaults[item_type] = ItemTypeDefaults(
+                item_type=item_type,
+                default_space_liters=float(defaults["default_space_liters"]),
+                default_weight_kg=float(defaults["default_weight_kg"]),
+            )
 
     locations_schema = schema.get("locations") if isinstance(schema.get("locations"), dict) else {}
     raw_kinds = locations_schema.get("allowed_kinds")
@@ -553,6 +611,7 @@ def load_inventory(data_dir: Optional[Path] = None) -> Inventory:
         _required_fields(schema, "sources", errors),
         frozenset(raw_types),
         frozenset(raw_uses),
+        MappingProxyType(type_defaults),
         location_ids,
         errors,
     )

@@ -153,6 +153,8 @@ def _item(item: PhysicalItem) -> Dict[str, Any]:
         "status": item.status,
         "notes": item.notes,
         "movements": [_plain(movement) for movement in item.movements],
+        "estimatedSpaceLiters": item.estimated_space_liters,
+        "estimatedWeightKg": item.estimated_weight_kg,
     }
 
 
@@ -161,6 +163,33 @@ def _location(location: Any, items: Sequence[PhysicalItem]) -> Dict[str, Any]:
     for item in items:
         category = _category(item.type)
         grouped[category] = grouped.get(category, 0) + 1
+    estimated_space = round(sum(item.estimated_space_liters for item in items), 2)
+    estimated_weight = round(sum(item.estimated_weight_kg for item in items), 2)
+    capacity = None
+    if location.kind == "travel_container":
+        capacity = {
+            "capacityLiters": location.capacity_liters,
+            "maxLoadKg": location.max_load_kg,
+            "estimatedUsedSpaceLiters": estimated_space,
+            "estimatedLoadKg": estimated_weight,
+            "remainingSpaceLiters": (
+                round(location.capacity_liters - estimated_space, 2)
+                if location.capacity_liters is not None else None
+            ),
+            "remainingLoadKg": (
+                round(location.max_load_kg - estimated_weight, 2)
+                if location.max_load_kg is not None else None
+            ),
+            "spaceUtilizationPercent": (
+                round(estimated_space / location.capacity_liters * 100, 1)
+                if location.capacity_liters is not None else None
+            ),
+            "loadUtilizationPercent": (
+                round(estimated_weight / location.max_load_kg * 100, 1)
+                if location.max_load_kg is not None else None
+            ),
+            "basis": "rough_item_type_defaults",
+        }
     return {
         "id": location.id,
         "name": location.name,
@@ -172,6 +201,7 @@ def _location(location: Any, items: Sequence[PhysicalItem]) -> Dict[str, Any]:
         "itemCount": len(items),
         "definitionCount": len({item.definition_id for item in items}),
         "categoryCounts": grouped,
+        "capacity": capacity,
     }
 
 

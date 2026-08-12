@@ -27,6 +27,7 @@ The UI below is rendered exclusively from the sanitized catalog in `data/example
 - **Know where everything is.** Every physical item has a current location, preferred home, condition, status, and movement history.
 - **Plan without changing reality.** Trips and packing plans are recommendations until a separately confirmed execution action is applied.
 - **Pack with context.** Plans can account for multi-leg itineraries, weather, laundry, activities, items already at a destination, and available luggage.
+- **Estimate bag capacity.** Travel containers define rough volume/load limits, while every inventory type supplies compressed-volume and weight defaults.
 - **Keep an audit trail.** Packed, used, unused, rejected, transferred, purchased, damaged, discarded, lost, returned, and destination-stay outcomes are recorded explicitly.
 - **Own your data.** The app runs locally and stores records as YAML. Personal runtime files are ignored by Git by default.
 
@@ -99,6 +100,12 @@ The sanitized files in `data/examples/` form a safe, complete starter catalog:
 representative possessions, a three-leg trip, all nine packing-plan sections,
 and a partial execution ledger. Copy them into `data/`, then replace the
 example records with your own local information.
+
+Capacity figures are intentionally estimates. A travel-container location has
+`capacity_liters` and `max_load_kg`; `definitions.type_defaults` assigns
+`default_space_liters` and `default_weight_kg` to every allowed item type. The
+UI totals only inventoried contents, so the bag itself and untracked toiletries,
+electronics, documents, and purchases must be allowed for separately.
 
 ## Safety model
 

@@ -9,6 +9,7 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from .models import (
     AttributeValue,
+    CapacityEstimate,
     DuplicateCandidate,
     InventoryComparison,
     InventoryCount,
@@ -189,6 +190,43 @@ class Inventory:
         if resolved.kind != "travel_container":
             raise ValueError("location {!r} is not a travel container".format(resolved.id))
         return self.list_at_location(resolved.id)
+
+    def estimate_container_capacity(
+        self, location: str, items: Optional[Iterable[PhysicalItem]] = None
+    ) -> CapacityEstimate:
+        """Estimate compressed volume and load from per-type defaults."""
+        resolved = self.resolve_location(location)
+        if resolved.kind != "travel_container":
+            raise ValueError("location {!r} is not a travel container".format(resolved.id))
+        selected = tuple(items) if items is not None else self.container_contents(resolved.id)
+        used_space = round(sum(item.estimated_space_liters for item in selected), 2)
+        used_weight = round(sum(item.estimated_weight_kg for item in selected), 2)
+        remaining_space = (
+            round(resolved.capacity_liters - used_space, 2)
+            if resolved.capacity_liters is not None else None
+        )
+        remaining_load = (
+            round(resolved.max_load_kg - used_weight, 2)
+            if resolved.max_load_kg is not None else None
+        )
+        space_percent = (
+            round(used_space / resolved.capacity_liters * 100, 1)
+            if resolved.capacity_liters is not None else None
+        )
+        load_percent = (
+            round(used_weight / resolved.max_load_kg * 100, 1)
+            if resolved.max_load_kg is not None else None
+        )
+        return CapacityEstimate(
+            location=resolved,
+            item_count=len(selected),
+            estimated_space_liters=used_space,
+            estimated_weight_kg=used_weight,
+            remaining_space_liters=remaining_space,
+            remaining_load_kg=remaining_load,
+            space_utilization_percent=space_percent,
+            load_utilization_percent=load_percent,
+        )
 
     def movement_history(self, item_id: str) -> Tuple[Movement, ...]:
         return self.resolve_item(item_id).movements
