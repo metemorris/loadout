@@ -42,6 +42,7 @@ import {
   MoreHorizontal,
   PackageCheck,
   Plane,
+  Plus,
   Search,
   Luggage,
   Shirt,
@@ -214,10 +215,12 @@ function StatRing({ value, label }: { value: number; label: string }) {
 }
 
 const ZONE_NAMES: Record<string, string> = {
+  activewear: 'Activewear & Other',
   tops: 'T-Shirt Closet', bottoms: 'Denim Shelf', outerwear: 'Hoodie & Sweater Shelf',
   footwear: 'Shoe Wall', formal: 'Formal Rack', accessories: 'Accessories', essentials: 'Underwear Drawer',
 }
 const ZONE_ASSETS: Record<string, string> = {
+  activewear: '/assets/zone-underwear.png',
   tops: '/assets/zone-tops.png',
   bottoms: '/assets/zone-bottoms.png',
   outerwear: '/assets/zone-outerwear.png',
@@ -414,22 +417,65 @@ type PendingPackingAction = {
   item: InventoryItem
   plan: PackingPlan
   candidates: InventoryItem[]
+  batch?: PendingPackingAction[]
+  continuesExecution?: boolean
 }
 
-function PackingListSurface({ detail, locationNames, query, busy, onAction }: {
+type PendingPackingEdit =
+  | { mode: 'add'; plan: PackingPlan; candidates: InventoryItem[]; containers: LocationSummary[] }
+  | { mode: 'container'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; physicallyPacked: boolean }
+  | { mode: 'unpack'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; returnTo: string }
+
+const ACTIVE_EXECUTION_STATUSES = new Set(['preparing', 'in_progress', 'reconciling'])
+
+function activeTripExecution(detail: TripDetailResponse) {
+  return [...detail.executions]
+    .reverse()
+    .find(value => ACTIVE_EXECUTION_STATUSES.has(value.status))
+}
+
+function visiblePackingPlan(detail: TripDetailResponse): PackingPlan | undefined {
+  const latestDraft = [...detail.plans].reverse().find(value => value.status === 'draft')
+  if (latestDraft) return latestDraft
+  const activeExecution = activeTripExecution(detail)
+  if (activeExecution) {
+    const executionPlan = detail.plans.find(value => value.id === activeExecution.packing_plan)
+    if (executionPlan) return executionPlan
+  }
+  return detail.plans.at(-1)
+}
+
+function PackingListSurface({ detail, locationNames, query, busy, onAction, onAddItem, onChangeContainer, onUnpack }: {
   detail: TripDetailResponse
   locationNames: Record<string, string>
   query: string
   busy: boolean
   onAction: (pending: PendingPackingAction) => void
+  onAddItem: (plan: PackingPlan) => void
+  onChangeContainer: (pending: Extract<PendingPackingEdit, { mode: 'container' }>) => void
+  onUnpack: (pending: Extract<PendingPackingEdit, { mode: 'unpack' }>) => void
 }) {
-  const plan = detail.plans[detail.plans.length - 1]
+  const plan = visiblePackingPlan(detail)
   const [section, setSection] = useState<PackingSection>('pack')
   const [categoryFilter, setCategoryFilter] = useState('all')
-  useEffect(() => { setSection('pack'); setCategoryFilter('all') }, [plan?.id])
+  const [selectedDecisions, setSelectedDecisions] = useState<Set<string>>(new Set())
+  const execution = activeTripExecution(detail) || (plan ? detail.executions.find(value => value.packing_plan === plan.id) : undefined)
+  const planOwnsExecution = execution?.packing_plan === plan?.id
+  useEffect(() => { setSection('pack'); setCategoryFilter('all'); setSelectedDecisions(new Set()) }, [plan?.id])
   useEffect(() => { setCategoryFilter('all') }, [section])
+  useEffect(() => {
+    setSelectedDecisions(current => new Set(
+      [...current].filter(decision => {
+        const [decisionSection, rawIndex] = decision.split(':') as [PackingSection, string]
+        const entry = plan?.sections[decisionSection]?.[Number(rawIndex) - 1]
+        return !execution?.actions.some(action => (
+          action.states.at(-1)?.status === 'applied'
+          && (action.decision === decision || (entry?.item && action.item === entry.item && action.kind === 'packed'))
+        ))
+      })
+    ))
+  }, [execution?.actions.length, plan?.id])
   if (!plan) return <div className="empty-state pack-empty"><ListChecks size={42} /><h2>No packing plan yet</h2><p>Create a proposed packing plan for this trip and it will appear here.</p></div>
-  const execution = detail.executions.find(value => value.packing_plan === plan.id)
   const itemMap = new Map(detail.items.map(item => [item.id, item]))
   const entries = plan.sections[section] || []
   const categoryOptions = Array.from(new Set(entries.map(entry => entry.item ? itemMap.get(entry.item)?.type : null).filter((value): value is string => Boolean(value)))).sort()
@@ -441,13 +487,39 @@ function PackingListSurface({ detail, locationNames, query, busy, onAction }: {
     return categoryMatches && searchMatches
   })
   const packEntries = plan.sections.pack
-  const packedCount = packEntries.filter((_entry, index) => execution?.actions.some(action => (action.decision === `pack:${index + 1}` || action.description === `Replacement for pack:${index + 1}`) && action.kind === 'packed' && action.states.at(-1)?.status === 'applied')).length
-  const completedCount = packEntries.filter((_entry, index) => execution?.actions.some(action => action.decision === `pack:${index + 1}` && ['packed', 'rejected'].includes(action.kind) && action.states.at(-1)?.status === 'applied')).length
+  const luggageIds = new Set(detail.containers.map(container => container.id))
+  const appliedPackedItems = new Set(execution?.actions.filter(action => action.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && luggageIds.has(itemMap.get(action.item)?.currentLocation || '')).map(action => action.item) || [])
+  const packedCount = packEntries.filter(entry => entry.item && appliedPackedItems.has(entry.item)).length
+  const completedCount = packEntries.filter((entry, index) => entry.item && (appliedPackedItems.has(entry.item) || (planOwnsExecution && execution?.actions.some(action => action.decision === `pack:${index + 1}` && action.kind === 'rejected' && action.states.at(-1)?.status === 'applied')))).length
+  const visibleSelectable = section === 'pack' ? visibleEntries.filter(({ entry }) => !entry.item || !appliedPackedItems.has(entry.item)) : []
+  const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every(({ index }) => selectedDecisions.has(`pack:${index + 1}`))
+
+  const toggleVisible = () => {
+    setSelectedDecisions(current => {
+      const next = new Set(current)
+      visibleSelectable.forEach(({ index }) => {
+        const decision = `pack:${index + 1}`
+        if (allVisibleSelected) next.delete(decision)
+        else next.add(decision)
+      })
+      return next
+    })
+  }
+
+  const packSelected = () => {
+    const selections = packEntries.flatMap((entry, index) => {
+      const item = entry.item ? itemMap.get(entry.item) : null
+      if (!item || appliedPackedItems.has(item.id) || !selectedDecisions.has(`pack:${index + 1}`)) return []
+      return [{ action: 'pack' as const, section: 'pack' as const, entryIndex: index + 1, entry, item, plan, candidates: [], continuesExecution: Boolean(execution) }]
+    })
+    if (!selections.length) return
+    onAction({ ...selections[0], batch: selections })
+  }
 
   return (
     <section className="packing-surface">
       <div className="packing-summary">
-        <div><span className={`plan-status ${plan.status}`}>{plan.status === 'draft' ? 'Proposed plan' : 'Confirmed plan'}</span><h2>Your packing list</h2><p>{plan.status === 'draft' ? 'Review the proposal. Your first confirmed Pack locks the plan and begins factual execution.' : 'Each completed action is recorded in the trip execution ledger.'}</p></div>
+        <div><span className={`plan-status ${plan.status}`}>{plan.status === 'draft' ? 'Updated selections' : 'Confirmed plan'}</span><h2>Your packing list</h2><p>{plan.status === 'draft' && execution ? 'Your updated selections are shown against factual progress from the active execution.' : plan.status === 'draft' ? 'Review the proposal. Your first confirmed Pack locks the plan and begins factual execution.' : 'Each completed action is recorded in the trip execution ledger.'}</p><button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan)}><Plus size={14} /> Add item</button></div>
         <div className="packing-progress"><strong>{packedCount}<span> / {packEntries.length}</span></strong><small>physically packed</small><div><span style={{ width: `${packEntries.length ? completedCount / packEntries.length * 100 : 0}%` }} /></div></div>
       </div>
       <nav className="packing-section-tabs" aria-label="Packing plan sections">
@@ -460,16 +532,18 @@ function PackingListSurface({ detail, locationNames, query, busy, onAction }: {
         {categoryOptions.map(type => <button key={type} className={categoryFilter === type ? 'active' : ''} onClick={() => setCategoryFilter(type)}>{type.replaceAll('_', ' ')} <strong>{entries.filter(entry => entry.item && itemMap.get(entry.item)?.type === type).length}</strong></button>)}
       </nav>}
       <div className="packing-list">
-        <div className="packing-list-head"><span>{PACKING_SECTION_LABELS[section]}</span><span>{visibleEntries.length} decisions</span></div>
+        <div className="packing-list-head"><span>{PACKING_SECTION_LABELS[section]}</span>{section === 'pack' ? <div className="packing-batch-controls"><label><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} disabled={!visibleSelectable.length} /> Select visible</label><span>{selectedDecisions.size} selected</span><button disabled={!selectedDecisions.size || busy} onClick={packSelected}><PackageCheck size={13} /> Pack selected</button></div> : <span>{visibleEntries.length} decisions</span>}</div>
         {visibleEntries.map(({ entry, index }) => {
           const item = entry.item ? itemMap.get(entry.item) : null
           const decision = `${section}:${index + 1}`
-          const outcome = execution?.actions.find(action => action.decision === decision && action.states.at(-1)?.status === 'applied')
-          const replacement = execution?.actions.find(action => action.description === `Replacement for ${decision}` && action.kind === 'packed' && action.states.at(-1)?.status === 'applied')
+          const itemOutcome = entry.item ? execution?.actions.find(action => action.item === entry.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
+          const outcome = itemOutcome || (planOwnsExecution ? execution?.actions.find(action => action.decision === decision && action.states.at(-1)?.status === 'applied') : undefined)
+          const replacement = planOwnsExecution ? execution?.actions.find(action => action.description === `Replacement for ${decision}` && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
           const replacementItem = replacement?.item ? itemMap.get(replacement.item) : null
           const status = replacement ? 'swapped' : outcome?.kind === 'packed' ? 'packed' : outcome?.kind === 'rejected' ? 'removed' : 'proposed'
           return (
             <article className={`packing-item ${status}`} key={`${decision}:${entry.item || entry.requirement}`}>
+              {section === 'pack' && status === 'proposed' && <label className="packing-item-select"><input type="checkbox" checked={selectedDecisions.has(decision)} onChange={() => setSelectedDecisions(current => { const next = new Set(current); if (next.has(decision)) next.delete(decision); else next.add(decision); return next })} aria-label={`Select ${item?.name || entry.requirement || 'packing item'}`} /></label>}
               <span className="packing-item-icon">{item ? <GarmentGlyph item={item} index={index} size={27} /> : <Sparkles size={22} />}</span>
               <div className="packing-item-copy">
                 <div><strong>{item?.name || entry.requirement?.replaceAll('_', ' ') || 'Unspecified item'}</strong><span className={`packing-state ${status}`}>{status}</span></div>
@@ -477,10 +551,12 @@ function PackingListSurface({ detail, locationNames, query, busy, onAction }: {
                 <p>{replacementItem ? `Swapped for ${replacementItem.name}. ` : ''}{entry.reason}</p>
               </div>
               {section === 'pack' && item && status === 'proposed' && <div className="packing-item-actions">
-                <button className="pack-now" disabled={busy} onClick={() => onAction({ action: 'pack', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><PackageCheck size={16} /> Pack</button>
-                <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Swap</button>
+                <button className="pack-now" disabled={busy} onClick={() => onAction({ action: 'pack', section, entryIndex: index + 1, entry, item, plan, candidates: [], continuesExecution: Boolean(execution) })}><PackageCheck size={16} /> Pack</button>
+                <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Swap item</button>
+                <button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, physicallyPacked: false })}><Luggage size={15} /> Change bag</button>
                 <button className="remove-item" disabled={busy} onClick={() => onAction({ action: 'remove', section, entryIndex: index + 1, entry, item, plan, candidates: [] })} aria-label={`Remove ${item.name}`}><Trash2 size={15} /></button>
               </div>}
+              {section === 'pack' && item && status === 'packed' && <div className="packing-item-actions"><button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, physicallyPacked: true })}><Luggage size={15} /> Change bag</button><button className="unpack-item" disabled={busy} onClick={() => { const packedAction = execution?.actions.find(action => action.item === item.id && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && action.source && !luggageIds.has(action.source)); if (packedAction?.source) onUnpack({ mode: 'unpack', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, returnTo: packedAction.source }) }}><Archive size={15} /> Unpack</button></div>}
               {status !== 'proposed' && <span className={`outcome-mark ${status}`}>{status === 'packed' ? <Check size={18} /> : status === 'swapped' ? <ArrowLeftRight size={18} /> : <X size={18} />}</span>}
             </article>
           )
@@ -503,16 +579,57 @@ function PackingActionDialog({ pending, busy, error, onClose, onConfirm }: {
   useEffect(() => { setReplacementId(''); setSwapNotes('') }, [pending])
   if (!pending) return null
   const verb = pending.action === 'pack' ? 'Pack' : pending.action === 'swap' ? 'Swap' : 'Remove'
-  const startsExecution = pending.plan.status === 'draft' && pending.action === 'pack'
+  const startsExecution = pending.plan.status === 'draft' && pending.action === 'pack' && !pending.continuesExecution
+  const batchCount = pending.batch?.length || 0
+  const targetLabel = batchCount > 1 ? `${batchCount} selected items` : pending.item.name
   return (
     <div className="modal-backdrop" role="presentation">
       <motion.div className="move-dialog packing-dialog" role="dialog" aria-modal="true" aria-labelledby="packing-dialog-title" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
         <div className="dialog-icon">{pending.action === 'pack' ? <PackageCheck /> : pending.action === 'swap' ? <ArrowLeftRight /> : <Trash2 />}</div>
-        <div><small>Confirm packing action</small><h2 id="packing-dialog-title">{verb} {pending.item.name}?</h2></div>
+        <div><small>Confirm packing action</small><h2 id="packing-dialog-title">{verb} {targetLabel}?</h2></div>
         {pending.action === 'swap' && <div className="swap-fields"><label className="dialog-field">Replacement<select value={replacementId} onChange={event => setReplacementId(event.target.value)}><option value="">Choose an item</option>{pending.candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.currentLocation}</option>)}</select></label><label className="dialog-field">Why are you swapping?<textarea value={swapNotes} onChange={event => setSwapNotes(event.target.value)} placeholder="Fit, weather, color, comfort, condition…" rows={3} /><small>This note is saved with the decision as evidence for future recommendations.</small></label></div>}
-        <p>{startsExecution ? 'This confirms the proposed plan, creates its execution ledger, and moves this exact item into the assigned container. ' : ''}{pending.action === 'pack' ? 'The packed outcome and physical location change will be recorded.' : pending.action === 'swap' ? pending.plan.status === 'draft' ? 'This updates only the draft recommendation; no item moves yet.' : 'The original decision will be rejected and the replacement will be physically moved and recorded.' : pending.plan.status === 'draft' ? 'This removes the recommendation from the draft; no physical inventory changes.' : 'This records that you rejected this confirmed packing decision.'}</p>
+        <p>{startsExecution ? `This confirms the proposed plan, creates its execution ledger, and moves ${batchCount > 1 ? 'these exact items' : 'this exact item'} into the assigned container${batchCount > 1 ? 's' : ''}. ` : pending.action === 'pack' && pending.continuesExecution && pending.plan.status === 'draft' ? 'This records the updated selection in the active execution without replacing its confirmed plan. ' : ''}{pending.action === 'pack' ? `${batchCount > 1 ? 'Every packed outcome and physical location change' : 'The packed outcome and physical location change'} will be recorded.` : pending.action === 'swap' ? pending.plan.status === 'draft' ? 'This updates only the draft recommendation; no item moves yet.' : 'The original decision will be rejected and the replacement will be physically moved and recorded.' : pending.plan.status === 'draft' ? 'This removes the recommendation from the draft; no physical inventory changes.' : 'This records that you rejected this confirmed packing decision.'}</p>
         {error && <div className="dialog-error">{error}</div>}
         <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" onClick={() => onConfirm(replacementId || undefined, swapNotes.trim() || undefined)} disabled={busy || (pending.action === 'swap' && (!replacementId || !swapNotes.trim()))}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm {verb.toLowerCase()}</button></div>
+      </motion.div>
+    </div>
+  )
+}
+
+function PackingEditDialog({ pending, busy, error, onClose, onConfirm }: {
+  pending: PendingPackingEdit | null
+  busy: boolean
+  error: string | null
+  onClose: () => void
+  onConfirm: (itemId: string | undefined, container: string, reason: string | undefined) => void
+}) {
+  const [itemId, setItemId] = useState('')
+  const [container, setContainer] = useState('')
+  const [reason, setReason] = useState('')
+  const [filter, setFilter] = useState('')
+  useEffect(() => {
+    setItemId(pending?.mode === 'add' ? pending.candidates[0]?.id || '' : pending?.item.id || '')
+    setContainer(pending?.mode === 'unpack' ? pending.returnTo : pending?.mode === 'container' ? pending.entry.container || pending.containers[0]?.id || '' : pending?.containers[0]?.id || '')
+    setReason('')
+    setFilter('')
+  }, [pending])
+  if (!pending) return null
+  const filteredCandidates = pending.mode === 'add' ? pending.candidates.filter(item => !filter.trim() || `${item.name} ${item.type} ${item.color || ''} ${item.currentLocation}`.toLowerCase().includes(filter.toLowerCase().trim())) : []
+  const selectedItem = pending.mode === 'add' ? pending.candidates.find(item => item.id === itemId) : pending.item
+  const currentContainer = pending.mode === 'container' ? pending.entry.container : null
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <motion.div className="move-dialog packing-dialog packing-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="packing-edit-title" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
+        <div className="dialog-icon">{pending.mode === 'add' ? <Plus /> : pending.mode === 'unpack' ? <Archive /> : <Luggage />}</div>
+        <div><small>{pending.mode === 'add' ? 'Edit packing list' : pending.mode === 'unpack' ? 'Confirm unpacking' : 'Container assignment'}</small><h2 id="packing-edit-title">{pending.mode === 'add' ? 'Add an owned item' : pending.mode === 'unpack' ? `Unpack ${pending.item.name}?` : `Move ${pending.item.name}?`}</h2></div>
+        <div className="swap-fields">
+          {pending.mode === 'add' && <><label className="dialog-field">Find item<input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Name, type, color, or location" /></label><label className="dialog-field">Item<select value={itemId} onChange={event => setItemId(event.target.value)}><option value="">Choose an item</option>{filteredCandidates.map(item => <option key={item.id} value={item.id}>{item.name} · {item.currentLocation}</option>)}</select></label></>}
+          {pending.mode !== 'unpack' && <label className="dialog-field">Bag<select value={container} onChange={event => setContainer(event.target.value)}><option value="">Choose a bag</option>{pending.containers.map(value => <option key={value.id} value={value.id} disabled={value.id === currentContainer}>{value.name}{value.id === currentContainer ? ' · current' : ''}</option>)}</select></label>}
+          {pending.mode === 'add' && <label className="dialog-field">Reason <span className="optional-label">optional</span><textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="Why this belongs on the trip" rows={2} /></label>}
+        </div>
+        <p>{pending.mode === 'add' ? `${selectedItem?.name || 'The selected item'} will be added to the editable packing revision. Nothing moves until you pack it.` : pending.mode === 'unpack' ? `This moves the item from its current bag back to ${pending.returnTo}, records a returned outcome in the execution ledger, and leaves the packing recommendation available to pack again.` : pending.physicallyPacked ? `This item is already packed. Confirming will update the packing revision, physically transfer it to the selected bag, and record the transfer in the execution ledger.` : `This only changes the planned bag. The item will not move until you pack it.`}</p>
+        {error && <div className="dialog-error">{error}</div>}
+        <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" disabled={busy || !container || (pending.mode === 'add' && !itemId) || (pending.mode === 'container' && container === currentContainer)} onClick={() => onConfirm(pending.mode === 'add' ? itemId : undefined, container, reason.trim() || undefined)}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm {pending.mode === 'unpack' ? 'unpack' : ''}</button></div>
       </motion.div>
     </div>
   )
@@ -531,6 +648,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   const [surface, setSurface] = useState<'packing' | 'containers'>('packing')
   const [tripDetail, setTripDetail] = useState<TripDetailResponse | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingPackingAction | null>(null)
+  const [pendingEdit, setPendingEdit] = useState<PendingPackingEdit | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const trip = trips.find(value => value.id === selectedTripId) || null
@@ -554,7 +672,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
       setSurface(nextDetail.plans.length ? 'packing' : 'containers')
       if (!nextDetail.plans.length) void onLoadContainers()
     }).catch(reason => setActionError(reason instanceof Error ? reason.message : 'The trip could not be loaded.'))
-  }, [selectedTripId, onLoadContainers])
+  }, [selectedTripId])
 
   useEffect(() => { if (selectedContainer && !selectedContainerId) setSelectedContainerId(selectedContainer.id) }, [selectedContainer, selectedContainerId])
 
@@ -572,11 +690,79 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     }
   }
 
+  const prepareAddItem = async (plan: PackingPlan) => {
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const response = await api.inventory()
+      const plannedIds = new Set(Object.values(plan.sections).flat().map(entry => entry.item).filter(Boolean))
+      const unavailable = new Set(['missing', 'lost', 'loaned', 'repair', 'discarded'])
+      const candidates = response.items.filter(item => !plannedIds.has(item.id) && !unavailable.has(item.status || ''))
+      setPendingEdit({ mode: 'add', plan, candidates, containers: tripDetail?.containers || [] })
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : 'Inventory could not be loaded.')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
+  const confirmEdit = async (itemId: string | undefined, container: string, reason: string | undefined) => {
+    if (!pendingEdit || !trip) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const nextDetail = pendingEdit.mode === 'add'
+        ? await api.addPackingItem(trip.id, { plan_id: pendingEdit.plan.id, item_id: itemId || '', container, reason })
+        : pendingEdit.mode === 'unpack'
+          ? await api.unpackPackingItem(trip.id, { plan_id: pendingEdit.plan.id, section: pendingEdit.section, entry_index: pendingEdit.entryIndex })
+          : await api.changePackingContainer(trip.id, { plan_id: pendingEdit.plan.id, section: pendingEdit.section, entry_index: pendingEdit.entryIndex, container })
+      setTripDetail(nextDetail)
+      setPendingEdit(null)
+      await onDataChanged()
+      if (pendingEdit.mode === 'unpack' || (pendingEdit.mode === 'container' && pendingEdit.physicallyPacked)) await onLoadContainers()
+    } catch (reasonValue) {
+      setActionError(reasonValue instanceof Error ? reasonValue.message : 'The packing-list edit failed.')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   const confirmAction = async (replacementItemId?: string, notes?: string) => {
     if (!pendingAction || !trip) return
     setActionBusy(true)
     setActionError(null)
     try {
+      if (pendingAction.action === 'pack') {
+        const selections = pendingAction.batch || [pendingAction]
+        const result = await api.packBatch(trip.id, {
+          plan_id: pendingAction.plan.id,
+          decisions: selections.map(value => ({ section: value.section, entry_index: value.entryIndex })),
+        })
+        setTripDetail(current => {
+          if (!current) return current
+          const itemMap = new Map(current.items.map(item => [item.id, item]))
+          result.items.forEach(item => itemMap.set(item.id, item))
+          const executions = current.executions.some(value => value.id === result.execution.id)
+            ? current.executions.map(value => value.id === result.execution.id ? result.execution : value)
+            : [...current.executions, result.execution]
+          return {
+            ...current,
+            plans: current.plans.map(value => value.id === pendingAction.plan.id && !pendingAction.continuesExecution ? { ...value, status: 'confirmed' } : value),
+            executions,
+            items: [...itemMap.values()],
+          }
+        })
+        if (result.failedDecisions.length) {
+          const failed = new Set(result.failedDecisions)
+          const failedSelections = selections.filter(value => failed.has(`${value.section}:${value.entryIndex}`))
+          setPendingAction({ ...failedSelections[0], batch: failedSelections })
+          setActionError(`${result.failedDecisions.length} item${result.failedDecisions.length === 1 ? '' : 's'} could not be packed. Review and retry.`)
+        } else {
+          setPendingAction(null)
+        }
+        void onDataChanged()
+        return
+      }
       const nextDetail = await api.packingAction(trip.id, {
         plan_id: pendingAction.plan.id,
         section: pendingAction.section,
@@ -587,7 +773,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
       })
       setTripDetail(nextDetail)
       setPendingAction(null)
-      await onDataChanged()
+      void onDataChanged()
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : 'The packing action failed.')
     } finally {
@@ -595,9 +781,12 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     }
   }
 
-  const plan = tripDetail?.plans[tripDetail.plans.length - 1]
-  const execution = plan ? tripDetail?.executions.find(value => value.packing_plan === plan.id) : null
-  const packedCount = execution?.actions.filter(action => action.kind === 'packed' && action.states.at(-1)?.status === 'applied').length || 0
+  const plan = tripDetail ? visiblePackingPlan(tripDetail) : undefined
+  const execution = tripDetail ? activeTripExecution(tripDetail) || (plan ? tripDetail.executions.find(value => value.packing_plan === plan.id) : null) : null
+  const tripLuggage = new Set(tripDetail?.containers.map(container => container.id) || [])
+  const detailItems = new Map(tripDetail?.items.map(item => [item.id, item]) || [])
+  const packedItems = new Set(execution?.actions.filter(action => action.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && tripLuggage.has(detailItems.get(action.item)?.currentLocation || '')).map(action => action.item) || [])
+  const packedCount = plan?.sections.pack.filter(entry => entry.item && packedItems.has(entry.item)).length || 0
   return (
     <div className="trips-layout">
       <aside className="trip-sidebar">
@@ -615,7 +804,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
           <div className="view-title">{surface === 'packing' ? <ListChecks size={29} strokeWidth={1.4} /> : <Luggage size={29} strokeWidth={1.4} />}<div><h1>{trip?.name || 'Travel Containers'}</h1><p>{surface === 'packing' ? 'Pack list · Proposal, decisions, and factual progress in one place.' : 'Containers · Physical luggage contents. Confirm every movement.'}</p></div></div>
           <div className="view-stats">{surface === 'packing' ? <><div><strong>{plan?.sections.pack.length || 0}</strong><small>Proposed</small></div><div><strong>{packedCount}</strong><small>Packed</small></div><StatRing value={plan?.sections.pack.length ? Math.round(packedCount / plan.sections.pack.length * 100) : 0} label="Done" /></> : <><div><strong>{containers.length}</strong><small>Containers</small></div><div><strong>{containers.reduce((sum, value) => sum + value.itemCount, 0)}</strong><small>Items</small></div><StatRing value={containers.length ? Math.round(containers.filter(value => value.itemCount > 0).length / containers.length * 100) : 0} label="In use" /></>}</div>
         </div>
-        {surface === 'packing' ? tripDetail ? <PackingListSurface detail={tripDetail} locationNames={locationNames} query={query} busy={actionBusy} onAction={pending => void prepareAction(pending)} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : (
+        {surface === 'packing' ? tripDetail ? <PackingListSurface detail={tripDetail} locationNames={locationNames} query={query} busy={actionBusy} onAction={pending => void prepareAction(pending)} onAddItem={planValue => void prepareAddItem(planValue)} onChangeContainer={setPendingEdit} onUnpack={setPendingEdit} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : (
           <div className="container-stage">
             <div className="container-grid">
               {visibleContainers.map(container => (
@@ -639,13 +828,12 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
         </div>
       </main>
       <PackingActionDialog pending={pendingAction} busy={actionBusy} error={actionError} onClose={() => { setPendingAction(null); setActionError(null) }} onConfirm={(replacementId, notes) => void confirmAction(replacementId, notes)} />
+      <PackingEditDialog pending={pendingEdit} busy={actionBusy} error={actionError} onClose={() => { setPendingEdit(null); setActionError(null) }} onConfirm={(itemId, container, reason) => void confirmEdit(itemId, container, reason)} />
     </div>
   )
 }
 
 function TripTimeline({ trip }: { trip: TripSummary }) {
-  const compactLegs = trip.legs.length > 5 ? [...trip.legs.slice(0, 3), trip.legs[trip.legs.length - 1]] : trip.legs
-  const hiddenLegs = trip.legs.length - compactLegs.length
   const firstOrigin = trip.legs[0]?.origin
   const finalDestination = trip.legs[trip.legs.length - 1]?.destination
   const routeSummary = firstOrigin === finalDestination
@@ -655,9 +843,8 @@ function TripTimeline({ trip }: { trip: TripSummary }) {
     <div className="trip-timeline">
       <div className="itinerary-heading"><span>Itinerary</span><strong>{trip.legs.length} legs</strong></div>
       <div className="trip-route-summary"><Plane size={14} /><span>{routeSummary}</span></div>
-      {compactLegs.map((leg, index) => (
+      {trip.legs.map((leg, index) => (
         <div key={leg.id}>
-        {hiddenLegs > 0 && index === compactLegs.length - 1 && <div className="timeline-more"><span /> {hiddenLegs} more stops</div>}
         <div className="timeline-leg" key={leg.id}>
           <span className="timeline-node">{index === 0 ? <Home size={14} /> : <Plane size={14} />}</span>
           <div><strong>{formatPlace(leg.origin)} → {formatPlace(leg.destination)}</strong><small>{formatDate(leg.departure)}</small></div>

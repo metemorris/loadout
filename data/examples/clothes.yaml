@@ -129,6 +129,84 @@ definitions:
     original_condition: good
     notes: Sanitized example item.
 
+- id: home-underwear
+  name: Everyday Underwear
+  type: underwear
+  attributes: {color: black}
+  use: [travel]
+  notes: null
+  sources:
+  - id: home-underwear
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-socks
+  name: Everyday Socks
+  type: socks
+  attributes: {color: gray}
+  use: [casual, travel]
+  notes: null
+  sources:
+  - id: home-socks
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-swimwear
+  name: Blue Swimwear
+  type: swimwear
+  attributes: {color: blue, quick_dry: true}
+  use: [beach, swimming, travel]
+  notes: null
+  sources:
+  - id: home-swimwear
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-navy-tie
+  name: Navy Formal Tie
+  type: tie
+  attributes: {color: navy}
+  use: [formal]
+  notes: null
+  sources:
+  - id: home-navy-tie
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-brown-belt
+  name: Brown Leather Belt
+  type: belt
+  attributes: {color: brown, material: leather}
+  use: [casual, formal, travel]
+  notes: null
+  sources:
+  - id: home-brown-belt
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized example item.
+
+- id: home-black-t-shirt
+  name: Everyday Black T-Shirt
+  type: t_shirt
+  attributes: {color: black, pattern: plain}
+  use: [casual, outside, travel]
+  notes: null
+  sources:
+  - id: home-black-t-shirt
+    original_location: home
+    original_quantity: 1
+    original_condition: good
+    notes: Sanitized swap candidate.
+
 instances:
 - id: home-rain-jacket
   definition: home-rain-jacket
@@ -143,12 +221,16 @@ instances:
 - id: home-white-t-shirt
   definition: home-white-t-shirt
   source: home-white-t-shirt
-  current_location: home
+  current_location: suitcase
   preferred_location: home
   condition: good
   status: null
   notes: null
-  movements: []
+  movements:
+  - timestamp: '2025-06-01T09:00:00Z'
+    source: home
+    destination: suitcase
+    reason: Packed during the synthetic example execution.
 
 - id: home-blue-jeans
   definition: home-blue-jeans
@@ -223,6 +305,66 @@ instances:
 - id: home-cream-sweater
   definition: home-cream-sweater
   source: home-cream-sweater
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-underwear
+  definition: home-underwear
+  source: home-underwear
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-socks
+  definition: home-socks
+  source: home-socks
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-swimwear
+  definition: home-swimwear
+  source: home-swimwear
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-navy-tie
+  definition: home-navy-tie
+  source: home-navy-tie
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-brown-belt
+  definition: home-brown-belt
+  source: home-brown-belt
+  current_location: home
+  preferred_location: home
+  condition: good
+  status: null
+  notes: null
+  movements: []
+
+- id: home-black-t-shirt
+  definition: home-black-t-shirt
+  source: home-black-t-shirt
   current_location: home
   preferred_location: home
   condition: good

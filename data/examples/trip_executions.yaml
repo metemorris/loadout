@@ -1,1 +1,68 @@
-executions: []
+executions:
+- id: sample-trip-execution
+  trip: sample-trip
+  packing_plan: sample-trip-plan
+  status: preparing
+  created_at: '2025-06-01T08:55:00Z'
+  actions:
+  - id: example-packed-shirt
+    timestamp: '2025-06-01T09:00:00Z'
+    kind: packed
+    item: home-white-t-shirt
+    description: casual_top
+    decision: pack:1
+    leg: home-to-coast
+    source: home
+    destination: suitcase
+    reason: Packed during the synthetic example execution.
+    states:
+    - {timestamp: '2025-06-01T09:00:00Z', status: confirmed, notes: null}
+    - {timestamp: '2025-06-01T09:00:00Z', status: applied, notes: null}
+  - id: example-rejected-jeans
+    timestamp: '2025-06-01T09:02:00Z'
+    kind: rejected
+    item: home-blue-jeans
+    description: Changed recommendation
+    decision: null
+    leg: home-to-coast
+    source: null
+    destination: null
+    reason: A lighter bottom was preferred; retained as future planning feedback.
+    states:
+    - {timestamp: '2025-06-01T09:02:00Z', status: confirmed, notes: User supplied swap notes.}
+    - {timestamp: '2025-06-01T09:02:00Z', status: applied, notes: Recommendation removed.}
+  - id: example-failed-underwear
+    timestamp: '2025-06-01T09:04:00Z'
+    kind: packed
+    item: home-underwear
+    description: Packing attempt
+    decision: pack:2
+    leg: home-to-coast
+    source: home
+    destination: carry-on
+    reason: Synthetic failed action used to test retry behavior.
+    states:
+    - {timestamp: '2025-06-01T09:04:00Z', status: confirmed, notes: null}
+    - {timestamp: '2025-06-01T09:04:01Z', status: failed, notes: Simulated stale source check.}
+  - id: example-pending-swimwear
+    timestamp: '2025-06-01T09:06:00Z'
+    kind: packed
+    item: home-swimwear
+    description: Pending packing action
+    decision: pack:4
+    leg: home-to-coast
+    source: home
+    destination: suitcase
+    reason: Confirmed but not yet applied in the synthetic lifecycle.
+    states:
+    - {timestamp: '2025-06-01T09:06:00Z', status: confirmed, notes: null}
+  reconciliation:
+    what_came_back: false
+    stayed_at_destination: false
+    never_used: false
+    purchased: false
+    incidents: false
+    rejected_or_changed: false
+    notes: null
+    completed_at: null
+  notes: Partial synthetic execution with applied, rejected, failed, and pending outcomes.

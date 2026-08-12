@@ -16,6 +16,7 @@ from .movement import (
 from .execution import (
     RECONCILIATION_TOPICS,
     ActionState,
+    BatchPackingResult,
     ExecutionAction,
     ExecutionConfirmationRequiredError,
     ExecutionValidationError,
@@ -27,6 +28,7 @@ from .execution import (
     cancel_trip_execution,
     complete_trip_execution,
     confirm_packing_decision,
+    confirm_packing_decisions,
     create_trip_execution,
     item_execution_history,
     load_trip_execution,
@@ -53,6 +55,12 @@ from .query import (
     Inventory,
     LocationNotFoundError,
     PhysicalItemNotFoundError,
+)
+from .repository import (
+    CatalogRepository,
+    CatalogSnapshot,
+    InMemoryCatalogRepository,
+    YamlCatalogRepository,
 )
 from .planning import (
     InventoryLocationContext,
@@ -188,6 +196,7 @@ __all__ = [
     "TripValidationError",
     "TripWeather",
     "ActionState",
+    "BatchPackingResult",
     "ExecutionAction",
     "ExecutionConfirmationRequiredError",
     "ExecutionValidationError",
@@ -218,6 +227,7 @@ __all__ = [
     "compile_packing_context",
     "confirm_packing_plan",
     "confirm_packing_decision",
+    "confirm_packing_decisions",
     "create_trip_execution",
     "begin_trip_execution",
     "record_execution_action",

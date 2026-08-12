@@ -1,1 +1,30 @@
-plans: []
+plans:
+- id: sample-trip-plan
+  trip: sample-trip
+  status: confirmed
+  created_at: '2025-05-26T12:00:00Z'
+  sections:
+    pack:
+    - {item: home-white-t-shirt, requirement: casual_top, leg: home-to-coast, container: suitcase, source: home, destination: null, quantity: 1, reason: Versatile everyday top.}
+    - {item: home-underwear, requirement: null, leg: home-to-coast, container: carry-on, source: home, destination: null, quantity: 1, reason: Arrival-day essential.}
+    - {item: home-socks, requirement: null, leg: home-to-coast, container: carry-on, source: home, destination: null, quantity: 1, reason: Arrival-day essential.}
+    - {item: home-swimwear, requirement: swimwear, leg: home-to-coast, container: suitcase, source: home, destination: example-coast, quantity: 1, reason: Supports the optional swimming activity.}
+    - {item: home-navy-tie, requirement: tie, leg: coast-to-city, container: suitcase, source: home, destination: example-city, quantity: 1, reason: Completes the formal outfit.}
+    - {item: home-brown-belt, requirement: belt, leg: coast-to-city, container: suitcase, source: home, destination: example-city, quantity: 1, reason: Works with both formal and casual clothing.}
+    wear_in_transit:
+    - {item: home-white-sneakers, requirement: casual_shoes, leg: home-to-coast, container: null, source: home, destination: null, quantity: 1, reason: Comfortable transit footwear.}
+    already_there:
+    - {item: suitcase-travel-towel, requirement: towel, leg: home-to-coast, container: null, source: suitcase, destination: suitcase, quantity: 1, reason: The towel is already in the suitcase.}
+    optional:
+    - {item: home-black-cap, requirement: hat, leg: home-to-coast, container: suitcase, source: home, destination: null, quantity: 1, reason: Optional sun protection.}
+    do_not_pack:
+    - {item: home-cream-sweater, requirement: outer_layer, leg: home-to-coast, container: null, source: home, destination: null, quantity: 1, reason: Forecast is warm enough without it.}
+    missing:
+    - {item: null, requirement: formal_shoes, leg: coast-to-city, container: null, source: null, destination: example-city, quantity: 1, reason: No suitable formal shoes exist in the example inventory.}
+    leave_at_destination:
+    - {item: home-black-cap, requirement: hat, leg: coast-to-city, container: null, source: home, destination: example-city, quantity: 1, reason: Example of a proposed destination stay.}
+    bring_back:
+    - {item: home-swimwear, requirement: swimwear, leg: city-to-home, container: suitcase, source: example-coast, destination: home, quantity: 1, reason: Return the swimwear to its preferred home.}
+    move_between_legs:
+    - {item: home-rain-jacket, requirement: outer_layer, leg: coast-to-city, container: suitcase, source: example-coast, destination: example-city, quantity: 1, reason: Keep the rain layer available between destinations.}
+  notes: Synthetic confirmed plan covering every recommendation section.

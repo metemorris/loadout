@@ -90,6 +90,13 @@ class ExecutionAction:
 
 
 @dataclass(frozen=True)
+class BatchPackingResult:
+    execution: "TripExecution"
+    applied_decisions: Tuple[str, ...]
+    failed_decisions: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TripReconciliation:
     what_came_back: bool = False
     stayed_at_destination: bool = False
@@ -754,6 +761,127 @@ def confirm_packing_decision(
         source=move_source, destination=move_destination,
         reason=reason or "Accepted planned {} decision.".format(section),
         confirmed=confirmed, timestamp=timestamp, data_dir=data_dir,
+    )
+
+
+def confirm_packing_decisions(
+    execution_id: str,
+    action_id_prefix: str,
+    decisions: Sequence[str],
+    *,
+    confirmed: bool = False,
+    reason: str = "Packed selected items.",
+    timestamp: Optional[str] = None,
+    data_dir: Optional[Path] = None,
+    execution_snapshot: Optional[TripExecution] = None,
+    plan_snapshot: Optional[PackingPlan] = None,
+    inventory_snapshot: Optional[Any] = None,
+) -> BatchPackingResult:
+    """Apply multiple pack decisions with grouped moves and one ledger write."""
+
+    if not confirmed:
+        raise ExecutionConfirmationRequiredError(
+            ["confirmation required to pack selected decisions"]
+        )
+    if not decisions:
+        raise ExecutionValidationError(["at least one packing decision is required"])
+    if len(set(decisions)) != len(decisions):
+        raise ExecutionValidationError(["packing decisions must not be repeated"])
+    execution = execution_snapshot or load_trip_execution(execution_id, data_dir)
+    if execution.status not in ("preparing", "in_progress", "reconciling"):
+        raise ExecutionValidationError(["execution status does not accept actions"])
+    plan = plan_snapshot or load_packing_plan(execution.packing_plan, data_dir)
+    existing_decisions = {
+        action.decision
+        for action in execution.actions
+        if action.decision and action.state != "failed"
+    }
+    repeated = [decision for decision in decisions if decision in existing_decisions]
+    if repeated:
+        raise ExecutionValidationError(
+            ["packing decisions already have outcomes: {}".format(", ".join(repeated))]
+        )
+
+    inventory = inventory_snapshot or load_inventory(data_dir)
+    resolved = []
+    seen_items = set()
+    movement_groups: Dict[Tuple[str, str], List[Tuple[str, Any]]] = {}
+    for decision in decisions:
+        section, entry = _decision_entry(plan, decision)
+        if section != "pack" or entry.item is None or entry.container is None:
+            raise ExecutionValidationError(
+                ["decision {!r} is not a physical pack decision".format(decision)]
+            )
+        if entry.item in seen_items:
+            raise ExecutionValidationError(["selected decisions repeat a physical item"])
+        seen_items.add(entry.item)
+        item = inventory.resolve_item(entry.item)
+        if item.current_location == entry.container:
+            raise ExecutionValidationError(
+                ["{} is already in {}".format(item.id, entry.container)]
+            )
+        inventory.resolve_location(entry.container)
+        resolved.append((decision, entry, item))
+        movement_groups.setdefault((item.current_location, entry.container), []).append(
+            (decision, item)
+        )
+
+    action_time = _timestamp(timestamp)
+    outcomes: Dict[str, Tuple[str, Optional[str]]] = {}
+    for (source, destination), values in movement_groups.items():
+        group_decisions = [decision for decision, _item in values]
+        try:
+            move_items(
+                [item.id for _decision, item in values],
+                source,
+                destination,
+                confirmed=True,
+                data_dir=data_dir,
+                reason="Trip {} batch {}: {}".format(
+                    execution.trip, action_id_prefix, reason
+                ),
+                timestamp=action_time,
+            )
+            outcomes.update((decision, ("applied", None)) for decision in group_decisions)
+        except Exception as exc:
+            outcomes.update((decision, ("failed", str(exc))) for decision in group_decisions)
+
+    actions = []
+    for index, (decision, entry, _item) in enumerate(resolved, 1):
+        outcome, notes = outcomes[decision]
+        actions.append(
+            ExecutionAction(
+                "{}-{}".format(action_id_prefix, index),
+                action_time,
+                "packed",
+                entry.item,
+                entry.requirement,
+                decision,
+                entry.leg,
+                _item.current_location,
+                entry.container,
+                reason,
+                (
+                    ActionState(action_time, "confirmed", None),
+                    ActionState(action_time, outcome, notes),
+                ),
+            )
+        )
+
+    def add_batch(raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog) -> None:
+        current = catalog.get(execution_id)
+        if current.status not in ("preparing", "in_progress", "reconciling"):
+            raise ExecutionValidationError(["execution status does not accept actions"])
+        if any(action.id in {existing.id for existing in current.actions} for action in actions):
+            raise ExecutionValidationError(["batch action ID already exists"])
+        raw = next(value for value in raw_executions if value["id"] == execution_id)
+        raw["actions"].extend(_action_to_raw(action) for action in actions)
+
+    updated = _mutate_executions(data_dir, add_batch).get(execution_id)
+    return BatchPackingResult(
+        updated,
+        tuple(decision for decision in decisions if outcomes[decision][0] == "applied"),
+        tuple(decision for decision in decisions if outcomes[decision][0] == "failed"),
     )
 
 

@@ -12,7 +12,13 @@
 # Legacy/private inventory sources and personalized fixtures/documentation.
 /inventory
 /markdown_data/
-/tests/
+/tests/*
+!/tests/conftest.py
+!/tests/test_generalized_unit.py
+!/tests/test_api_generalized.py
+!/tests/test_e2e_yaml.py
+!/tests/test_properties.py
+!/tests/test_personal_compatibility.py
 /docs/
 
 # Common places for personal travel exports and attachments.
@@ -51,6 +57,7 @@ venv/
 ENV/
 *.egg-info/
 .pytest_cache/
+.hypothesis/
 .mypy_cache/
 .ruff_cache/
 .coverage

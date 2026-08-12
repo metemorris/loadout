@@ -141,6 +141,13 @@ export interface TripDetailResponse {
 
 export interface InventoryResponse { items: InventoryItem[]; count: number }
 
+export interface PackingBatchResponse {
+  execution: TripExecution
+  items: InventoryItem[]
+  appliedDecisions: string[]
+  failedDecisions: string[]
+}
+
 export interface MovementPlan {
   item_ids: string[]
   source: string
