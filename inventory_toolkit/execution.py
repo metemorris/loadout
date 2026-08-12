@@ -14,6 +14,7 @@ import yaml
 
 from .loader import load_inventory
 from .movement import move_items, plan_movement, register_purchased_item, update_item_status
+from .paths import default_data_directory
 from .packing import PLAN_SECTIONS, PackingPlan, load_packing_plan, load_packing_plans
 from .trips import (
     TripNotFoundError,
@@ -141,7 +142,7 @@ class TripExecutionCatalog:
 
 
 def _data_directory(data_dir: Optional[Path]) -> Path:
-    return Path(data_dir) if data_dir is not None else Path(__file__).resolve().parents[1] / "data"
+    return Path(data_dir) if data_dir is not None else default_data_directory()
 
 
 def _read_yaml(path: Path) -> Any:
@@ -619,9 +620,17 @@ def begin_trip_execution(
     if not confirmed:
         raise ExecutionConfirmationRequiredError(["confirmation required to begin trip execution"])
     execution = load_trip_execution(execution_id, data_dir)
-    if execution.status != "preparing":
+    trip = load_trip(execution.trip, data_dir)
+    if execution.status not in ("preparing", "in_progress"):
         raise ExecutionValidationError(["execution must be preparing before trip start"])
-    set_trip_status(execution.trip, "in_progress", data_dir=data_dir)
+    if trip.status not in ("planned", "in_progress"):
+        raise ExecutionValidationError(
+            ["trip must be planned or in progress when execution begins"]
+        )
+    if trip.status == "planned":
+        set_trip_status(execution.trip, "in_progress", data_dir=data_dir)
+    if execution.status == "in_progress":
+        return load_trip_execution(execution_id, data_dir)
 
     def update(raw_executions: List[Dict[str, Any]], _catalog: TripExecutionCatalog) -> None:
         raw = next(value for value in raw_executions if value["id"] == execution_id)
@@ -827,6 +836,38 @@ def confirm_packing_decisions(
         )
 
     action_time = _timestamp(timestamp)
+    actions = []
+    for index, (decision, entry, _item) in enumerate(resolved, 1):
+        actions.append(
+            ExecutionAction(
+                "{}-{}".format(action_id_prefix, index),
+                action_time,
+                "packed",
+                entry.item,
+                entry.requirement,
+                decision,
+                entry.leg,
+                _item.current_location,
+                entry.container,
+                reason,
+                (ActionState(action_time, "confirmed", None),),
+            )
+        )
+
+    def add_batch(raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog) -> None:
+        current = catalog.get(execution_id)
+        if current.status not in ("preparing", "in_progress", "reconciling"):
+            raise ExecutionValidationError(["execution status does not accept actions"])
+        if any(action.id in {existing.id for existing in current.actions} for action in actions):
+            raise ExecutionValidationError(["batch action ID already exists"])
+        raw = next(value for value in raw_executions if value["id"] == execution_id)
+        raw["actions"].extend(_action_to_raw(action) for action in actions)
+
+    # Commit the user's confirmed intent before changing physical inventory. If
+    # the process stops after this point, recovery can reconcile a visible
+    # pending action; no physical move can become an unlogged fact.
+    _mutate_executions(data_dir, add_batch)
+
     outcomes: Dict[str, Tuple[str, Optional[str]]] = {}
     for (source, destination), values in movement_groups.items():
         group_decisions = [decision for decision, _item in values]
@@ -846,43 +887,133 @@ def confirm_packing_decisions(
         except Exception as exc:
             outcomes.update((decision, ("failed", str(exc))) for decision in group_decisions)
 
-    actions = []
-    for index, (decision, entry, _item) in enumerate(resolved, 1):
-        outcome, notes = outcomes[decision]
-        actions.append(
-            ExecutionAction(
-                "{}-{}".format(action_id_prefix, index),
-                action_time,
-                "packed",
-                entry.item,
-                entry.requirement,
-                decision,
-                entry.leg,
-                _item.current_location,
-                entry.container,
-                reason,
-                (
-                    ActionState(action_time, "confirmed", None),
-                    ActionState(action_time, outcome, notes),
-                ),
-            )
-        )
+    states_by_id = {
+        action.id: outcomes[action.decision]
+        for action in actions
+        if action.decision is not None
+    }
 
-    def add_batch(raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog) -> None:
+    def finish_batch(
+        raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog
+    ) -> None:
         current = catalog.get(execution_id)
-        if current.status not in ("preparing", "in_progress", "reconciling"):
-            raise ExecutionValidationError(["execution status does not accept actions"])
-        if any(action.id in {existing.id for existing in current.actions} for action in actions):
-            raise ExecutionValidationError(["batch action ID already exists"])
+        current_by_id = {action.id: action for action in current.actions}
         raw = next(value for value in raw_executions if value["id"] == execution_id)
-        raw["actions"].extend(_action_to_raw(action) for action in actions)
+        raw_by_id = {action["id"]: action for action in raw["actions"]}
+        for action_id, (status, notes) in states_by_id.items():
+            current_action = current_by_id.get(action_id)
+            if current_action is None or current_action.state != "confirmed":
+                raise ExecutionValidationError(
+                    ["batch action {!r} is not pending".format(action_id)]
+                )
+            raw_by_id[action_id]["states"].append(
+                {"timestamp": action_time, "status": status, "notes": notes}
+            )
 
-    updated = _mutate_executions(data_dir, add_batch).get(execution_id)
+    updated = _mutate_executions(data_dir, finish_batch).get(execution_id)
     return BatchPackingResult(
         updated,
         tuple(decision for decision in decisions if outcomes[decision][0] == "applied"),
         tuple(decision for decision in decisions if outcomes[decision][0] == "failed"),
     )
+
+
+def recover_pending_execution_actions(
+    execution_id: str,
+    *,
+    confirmed: bool = False,
+    data_dir: Optional[Path] = None,
+) -> TripExecution:
+    """Explicitly reconcile actions left pending by an interrupted write."""
+
+    if not confirmed:
+        raise ExecutionConfirmationRequiredError(
+            ["confirmation required to recover pending execution actions"]
+        )
+    execution = load_trip_execution(execution_id, data_dir)
+    pending = [action for action in execution.actions if action.state == "confirmed"]
+    if not pending:
+        return execution
+
+    inventory = load_inventory(data_dir)
+    outcomes: Dict[str, Tuple[str, Optional[str]]] = {}
+    for action in pending:
+        try:
+            if action.source is not None and action.destination is not None:
+                if action.item is None:
+                    raise ExecutionValidationError(
+                        ["movement action {!r} has no item".format(action.id)]
+                    )
+                item = load_inventory(data_dir).resolve_item(action.item)
+                if item.current_location == action.destination:
+                    outcomes[action.id] = (
+                        "applied",
+                        "Recovered: item was already at the recorded destination.",
+                    )
+                    continue
+                if item.current_location != action.source:
+                    raise ExecutionValidationError(
+                        [
+                            "item {!r} is at {!r}, expected {!r} or {!r}".format(
+                                item.id,
+                                item.current_location,
+                                action.source,
+                                action.destination,
+                            )
+                        ]
+                    )
+                move_items(
+                    [item.id],
+                    action.source,
+                    action.destination,
+                    confirmed=True,
+                    data_dir=data_dir,
+                    reason="Recovered interrupted execution action {}: {}".format(
+                        action.id, action.reason
+                    ),
+                    timestamp=action.timestamp,
+                )
+            elif action.kind in STATUS_BY_KIND:
+                if action.item is None:
+                    raise ExecutionValidationError(
+                        ["{} action requires an item".format(action.kind)]
+                    )
+                current = inventory.resolve_item(action.item)
+                expected_status = STATUS_BY_KIND[action.kind]
+                if current.status != expected_status:
+                    update_item_status(
+                        action.item,
+                        expected_status,
+                        confirmed=True,
+                        data_dir=data_dir,
+                    )
+            elif action.kind == "purchased":
+                if action.item is None:
+                    raise ExecutionValidationError(["purchase action requires an item"])
+                load_inventory(data_dir).resolve_item(action.item)
+            outcomes[action.id] = ("applied", "Recovered interrupted action.")
+        except Exception as exc:
+            outcomes[action.id] = ("failed", "Recovery failed: {}".format(exc))
+
+    recovered_at = _timestamp()
+
+    def finish_pending(
+        raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog
+    ) -> None:
+        current = catalog.get(execution_id)
+        current_by_id = {action.id: action for action in current.actions}
+        raw = next(value for value in raw_executions if value["id"] == execution_id)
+        raw_by_id = {action["id"]: action for action in raw["actions"]}
+        for action_id, (status, notes) in outcomes.items():
+            if current_by_id[action_id].state != "confirmed":
+                raise ExecutionValidationError(
+                    ["action {!r} is no longer pending".format(action_id)]
+                )
+            raw_by_id[action_id]["states"].append(
+                {"timestamp": recovered_at, "status": status, "notes": notes}
+            )
+
+    return _mutate_executions(data_dir, finish_pending).get(execution_id)
 
 
 def record_purchased_item(
@@ -963,6 +1094,11 @@ def complete_trip_execution(
     if not confirmed:
         raise ExecutionConfirmationRequiredError(["confirmation required to complete trip"])
     execution = load_trip_execution(execution_id, data_dir)
+    trip = load_trip(execution.trip, data_dir)
+    if execution.status == "completed":
+        if trip.status != "completed":
+            complete_trip_after_reconciliation(execution.trip, data_dir=data_dir)
+        return load_trip_execution(execution_id, data_dir)
     if execution.status != "reconciling" or not execution.reconciliation.ready:
         missing = [
             topic for topic in RECONCILIATION_TOPICS
@@ -975,7 +1111,12 @@ def complete_trip_execution(
     if pending:
         raise ExecutionValidationError(["pending actions must be resolved: {}".format(", ".join(pending))])
     completed_at = _timestamp(timestamp)
-    complete_trip_after_reconciliation(execution.trip, data_dir=data_dir)
+    if trip.status == "in_progress":
+        complete_trip_after_reconciliation(execution.trip, data_dir=data_dir)
+    elif trip.status != "completed":
+        raise ExecutionValidationError(
+            ["trip must be in progress before execution completion"]
+        )
 
     def finish(raw_executions: List[Dict[str, Any]], _catalog: TripExecutionCatalog) -> None:
         raw = next(value for value in raw_executions if value["id"] == execution_id)
@@ -991,9 +1132,15 @@ def cancel_trip_execution(
     if not confirmed:
         raise ExecutionConfirmationRequiredError(["confirmation required to cancel trip execution"])
     execution = load_trip_execution(execution_id, data_dir)
-    if execution.status in ("completed", "cancelled"):
+    trip = load_trip(execution.trip, data_dir)
+    if execution.status == "cancelled":
+        if trip.status != "cancelled":
+            set_trip_status(execution.trip, "cancelled", data_dir=data_dir)
+        return load_trip_execution(execution_id, data_dir)
+    if execution.status == "completed":
         raise ExecutionValidationError(["execution is already terminal"])
-    set_trip_status(execution.trip, "cancelled", data_dir=data_dir)
+    if trip.status != "cancelled":
+        set_trip_status(execution.trip, "cancelled", data_dir=data_dir)
 
     def cancel(raw_executions: List[Dict[str, Any]], _catalog: TripExecutionCatalog) -> None:
         raw = next(value for value in raw_executions if value["id"] == execution_id)

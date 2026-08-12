@@ -1,0 +1,19 @@
+include README.md
+include SECURITY.md
+include ASSETS.md
+include LICENSE
+include pyproject.toml
+
+# Runtime package contents are declared explicitly in pyproject.toml. Never let
+# local/private records or stale egg-info discovery leak into a source archive.
+prune docs
+prune inventory
+prune markdown_data
+prune tests
+exclude data/clothes.yaml
+exclude data/locations.yaml
+exclude data/trips.yaml
+exclude data/packing_plans.yaml
+exclude data/trip_executions.yaml
+global-exclude .DS_Store
+global-exclude *.py[cod]

@@ -22,6 +22,7 @@ from .execution import (
     load_trip_executions,
     record_execution_action,
     record_purchased_item,
+    recover_pending_execution_actions,
     review_reconciliation,
 )
 from .models import InventoryCount, ItemDefinition, Location, LocationSummary, Movement, PhysicalItem, Query
@@ -855,6 +856,11 @@ def build_parser() -> argparse.ArgumentParser:
     execution_begin = execution_commands.add_parser("begin", help="transition planned trip to in_progress")
     execution_begin.add_argument("execution_id")
     execution_begin.add_argument("--confirm", action="store_true")
+    execution_recover = execution_commands.add_parser(
+        "recover", help="reconcile actions left pending by an interrupted write"
+    )
+    execution_recover.add_argument("execution_id")
+    execution_recover.add_argument("--confirm", action="store_true")
     execution_decision = execution_commands.add_parser("decision", help="accept or reject one plan decision")
     execution_decision.add_argument("execution_id")
     execution_decision.add_argument("action_id")
@@ -1212,6 +1218,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 )
             elif args.execution_command == "begin":
                 execution = begin_trip_execution(
+                    args.execution_id, confirmed=args.confirm, data_dir=args.data_dir
+                )
+            elif args.execution_command == "recover":
+                execution = recover_pending_execution_actions(
                     args.execution_id, confirmed=args.confirm, data_dir=args.data_dir
                 )
             elif args.execution_command == "decision":

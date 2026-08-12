@@ -4,12 +4,23 @@
 # shared definitions and individually trackable physical instances.
 
 require "yaml"
+require "optparse"
+require "tempfile"
 
 ROOT = File.expand_path("..", __dir__)
-PATH = File.join(ROOT, "data", "clothes.yaml")
+options = {path: File.join(ROOT, "data", "clothes.yaml"), dry_run: false, confirm: false}
+OptionParser.new do |parser|
+  parser.banner = "Usage: #{File.basename($PROGRAM_NAME)} [options]"
+  parser.on("--path PATH", "version-1 clothes.yaml to migrate") { |value| options[:path] = File.expand_path(value) }
+  parser.on("--dry-run", "validate and report without writing") { options[:dry_run] = true }
+  parser.on("--confirm", "confirm the migration write") { options[:confirm] = true }
+end.parse!
+abort "--confirm is required unless --dry-run is used" unless options[:dry_run] || options[:confirm]
+
+path = options.fetch(:path)
 
 raw = YAML.safe_load(
-  File.read(PATH),
+  File.read(path),
   permitted_classes: [],
   permitted_symbols: [],
   aliases: false
@@ -93,6 +104,18 @@ abort "generated duplicate instance IDs: #{duplicate_instance_ids.keys.join(', '
 
 output = YAML.dump({"definitions" => definitions, "instances" => instances}).sub(/\A---\s*\n/, "")
 output = output.gsub(/^(\s+(?:notes|original_condition|condition|status|source):)\s*$/, '\\1 null')
-File.write(PATH, output)
 
-puts "Migrated #{raw.length} source records into #{definitions.length} definitions and #{instances.length} instances."
+unless options[:dry_run]
+  backup = "#{path}.v1.bak"
+  abort "backup already exists: #{backup}" if File.exist?(backup)
+  File.write(backup, File.binread(path))
+  Tempfile.create([File.basename(path), ".tmp"], File.dirname(path)) do |temporary|
+    temporary.write(output)
+    temporary.flush
+    temporary.fsync
+    File.rename(temporary.path, path)
+  end
+end
+
+verb = options[:dry_run] ? "Would migrate" : "Migrated"
+puts "#{verb} #{raw.length} source records into #{definitions.length} definitions and #{instances.length} instances."

@@ -12,6 +12,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import yaml
 
+from .paths import default_data_directory
+
 CATEGORY_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 TEMPLATE_FIELDS = {"id", "name", "required", "optional", "notes"}
@@ -96,7 +98,7 @@ class RequirementTemplateCatalog:
 
 
 def _data_directory(data_dir: Optional[Path]) -> Path:
-    return Path(data_dir) if data_dir is not None else Path(__file__).resolve().parents[1] / "data"
+    return Path(data_dir) if data_dir is not None else default_data_directory()
 
 
 def _read_yaml(path: Path) -> Any:

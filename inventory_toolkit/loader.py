@@ -22,6 +22,7 @@ from .models import (
     Movement,
     PhysicalItem,
 )
+from .paths import default_data_directory
 from .query import Inventory
 
 ID_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -491,7 +492,7 @@ def _validate_instances(
 def load_inventory(data_dir: Optional[Path] = None) -> Inventory:
     """Load and validate the inventory from *data_dir* without mutating YAML."""
 
-    directory = Path(data_dir) if data_dir is not None else Path(__file__).resolve().parents[1] / "data"
+    directory = Path(data_dir) if data_dir is not None else default_data_directory()
     schema = _read_yaml(directory / "schema.yaml")
     locations_raw = _read_yaml(directory / "locations.yaml")
     inventory_raw = _read_yaml(directory / "clothes.yaml")
