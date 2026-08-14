@@ -72,15 +72,15 @@ CATEGORY_TYPES = {
 }
 
 CATEGORY_META = {
-    "activewear": ("Activewear & Other", "Swim, sport, towels, and travel extras"),
+    "activewear": ("Activewear", "Clothing made for workouts and sport"),
     "tops": ("Tops", "Everyday shirts and layers"),
-    "bottoms": ("Bottoms", "Denim, shorts, and pants"),
+    "bottoms": ("Jeans & Pants", "Jeans, shorts, and everyday pants"),
     "outerwear": ("Outerwear", "Warm layers and jackets"),
-    "footwear": ("Footwear", "Shoes and boots"),
-    "formal": ("Formal", "Suits and finishing pieces"),
+    "footwear": ("Shoes", "Everyday, athletic, and formal shoes"),
+    "formal": ("Formalwear", "Suits and finishing pieces"),
     "accessories": ("Accessories", "Hats, scarves, and small pieces"),
-    "essentials": ("Essentials", "Basics, swim, and towels"),
-    "other": ("Other", "Uncategorized possessions"),
+    "essentials": ("Underwear & Socks", "Daily undergarments and socks"),
+    "other": ("Other", "Possessions that do not fit another category"),
 }
 
 
