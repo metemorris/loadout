@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+  <title id="title">Other possessions storage</title><desc id="desc">Dark modular storage boxes for uncategorized possessions.</desc>
+  <defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#24211d"/><stop offset="1" stop-color="#080808"/></linearGradient><linearGradient id="box" y2="1"><stop stop-color="#5b5143"/><stop offset="1" stop-color="#211e1a"/></linearGradient></defs>
+  <rect width="1200" height="720" fill="url(#bg)"/><path d="M0 155h1200M0 430h1200" stroke="#716653" stroke-width="13" opacity=".45"/>
+  <g fill="url(#box)" stroke="#8a7b65" stroke-width="4"><rect x="80" y="205" width="290" height="210" rx="12"/><rect x="450" y="80" width="320" height="335" rx="12"/><rect x="845" y="205" width="275" height="210" rx="12"/><rect x="165" y="478" width="360" height="190" rx="12"/><rect x="610" y="478" width="420" height="190" rx="12"/></g>
+  <g fill="none" stroke="#b5a287" stroke-width="6" opacity=".8"><path d="M190 300h70m-35-35v70"/><circle cx="610" cy="245" r="52"/><path d="m575 245 24 24 48-55M950 278h70v70h-70zM310 545h70m-35-35v70M780 548l48 48m0-48-48 48"/></g>
+</svg>
