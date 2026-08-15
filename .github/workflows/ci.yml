@@ -62,18 +62,3 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run build
-
-  ruby-compatibility:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
-      - run: python -m pip install -e .
-      - run: |
-          cp data/examples/*.yaml data/
-          ruby scripts/validate_inventory.rb data

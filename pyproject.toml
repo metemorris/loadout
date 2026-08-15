@@ -27,13 +27,15 @@ dev = ["httpx>=0.27,<1", "pytest>=8,<9", "hypothesis>=6,<7"]
 [project.scripts]
 inventory = "inventory_toolkit.cli:main"
 loadout-api = "api.app:run"
+loadout-dev = "api.dev:run"
 
 [tool.setuptools]
-packages = ["inventory_toolkit", "api"]
+packages = ["inventory_toolkit", "api", "api.routes"]
 
 [tool.setuptools.data-files]
 "share/loadout" = [
   "data/schema.yaml",
+  "data/categories.yaml",
   "data/activity_templates.yaml",
   "data/requirement_matchers.yaml",
   "data/examples/clothes.yaml",

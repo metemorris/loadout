@@ -4,6 +4,7 @@
 # sanitized examples; ignore every real runtime record by default.
 /data/*
 !/data/schema.yaml
+!/data/categories.yaml
 !/data/activity_templates.yaml
 !/data/requirement_matchers.yaml
 !/data/examples/
@@ -82,6 +83,7 @@ pnpm-debug.log*
 *.swp
 
 # Editors and operating systems.
+.tours/
 .DS_Store
 Thumbs.db
 .idea/

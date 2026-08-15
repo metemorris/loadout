@@ -47,6 +47,7 @@ export interface CategoryGroup {
   id: string
   name: string
   description: string
+  artwork: string
   count: number
   items: InventoryItem[]
 }
@@ -59,7 +60,7 @@ export interface LocationDetail {
 export interface Overview {
   locations: LocationSummary[]
   totals: { items: number; definitions: number; homes: number; containers: number }
-  categories: Array<{ id: string; name: string; description: string }>
+  categories: Array<{ id: string; name: string; description: string; artwork: string }>
 }
 
 export interface TripLeg {

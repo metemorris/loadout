@@ -1,0 +1,46 @@
+categories:
+  - id: activewear
+    name: Activewear
+    description: Clothing made for workouts and sport
+    artwork: /assets/zone-underwear.png
+    item_types: [swim_trunks, swimwear, towel, beach_towel]
+  - id: tops
+    name: Tops
+    description: Everyday shirts and layers
+    artwork: /assets/zone-tops.png
+    item_types: [t_shirt, shirt, tank_top, long_sleeve_shirt, vest]
+  - id: bottoms
+    name: Jeans & Pants
+    description: Jeans, shorts, and everyday pants
+    artwork: /assets/zone-bottoms.png
+    item_types: [jeans, shorts, sports_shorts, sweatpants, thermal_pants]
+  - id: outerwear
+    name: Outerwear
+    description: Warm layers and jackets
+    artwork: /assets/zone-outerwear.png
+    item_types: [hoodie, jacket, sweater, zip_up, suit_jacket, robe]
+  - id: footwear
+    name: Shoes
+    description: Everyday, athletic, and formal shoes
+    artwork: /assets/zone-footwear.png
+    item_types: [shoes, dress_shoes, athletic_shoes, soccer_shoes, boots, flip_flops]
+  - id: formal
+    name: Formalwear
+    description: Suits and finishing pieces
+    artwork: /assets/zone-formal.png
+    item_types: [suit, tuxedo, tie, belt]
+  - id: accessories
+    name: Accessories
+    description: Hats, scarves, and small pieces
+    artwork: /assets/zone-accessories.png
+    item_types: [hat, beanie, bandana, scarf, gloves, neck_gaiter]
+  - id: essentials
+    name: Underwear & Socks
+    description: Daily undergarments and socks
+    artwork: /assets/zone-underwear.png
+    item_types: [socks, underwear]
+  - id: other
+    name: Other
+    description: Possessions that do not fit another category
+    artwork: /assets/zone-other.svg
+    item_types: []

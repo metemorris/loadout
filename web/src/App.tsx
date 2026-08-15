@@ -227,30 +227,13 @@ function StatRing({ value, label }: { value: number; label: string }) {
   )
 }
 
-const ZONE_NAMES: Record<string, string> = {
-  activewear: 'Activewear',
-  tops: 'Tops', bottoms: 'Jeans & Pants', outerwear: 'Outerwear',
-  footwear: 'Shoes', formal: 'Formalwear', accessories: 'Accessories', essentials: 'Underwear & Socks', other: 'Other',
-}
-const ZONE_ASSETS: Record<string, string> = {
-  activewear: '/assets/zone-underwear.png',
-  tops: '/assets/zone-tops.png',
-  bottoms: '/assets/zone-bottoms.png',
-  outerwear: '/assets/zone-outerwear.png',
-  footwear: '/assets/zone-footwear.png',
-  formal: '/assets/zone-formal.png',
-  accessories: '/assets/zone-accessories.png',
-  essentials: '/assets/zone-underwear.png',
-  other: '/assets/zone-other.svg',
-}
-
 function CategoryArtwork({ group, onOpen }: { group: CategoryGroup; onOpen: () => void }) {
   const itemPreview = group.items.slice(0, 3)
   const [focusedItem, setFocusedItem] = useState<InventoryItem | null>(null)
   const focusLabel = focusedItem ? focusedItem.name : 'Explore items'
   return (
     <div className={`artwork zone-art zone-art-${group.id}`}>
-      <img src={ZONE_ASSETS[group.id] || '/assets/wardrobe-editorial.png'} alt={`${ZONE_NAMES[group.id] || group.name} inventory`} />
+      <img src={group.artwork} alt={`${group.name} inventory`} />
       <div className="photo-vignette" />
       <div className="asset-interaction" aria-label={`${group.count} items in ${group.name}`}>
         <span className="asset-hint">{focusLabel}</span>
@@ -293,7 +276,7 @@ function CategoryCard({ group, onOpen }: { group: CategoryGroup; onOpen: () => v
       onClick={onOpen}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onOpen() } }}
     >
-      <div className="card-title"><span><strong>{ZONE_NAMES[group.id] || group.name}</strong><small>{group.count} items</small></span><MoreHorizontal size={20} /></div>
+      <div className="card-title"><span><strong>{group.name}</strong><small>{group.count} items</small></span><MoreHorizontal size={20} /></div>
       <CategoryArtwork group={group} onOpen={onOpen} />
     </div>
   )

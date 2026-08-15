@@ -74,6 +74,13 @@ React + Vite (web/)  ->  FastAPI (api/)  ->  inventory_toolkit/  ->  YAML (data/
 
 The browser never edits YAML directly. All reads, movement previews, confirmations, packing decisions, and execution actions pass through the validated Python domain layer.
 
+The boundary is intentional: `inventory_toolkit/` owns validation, planning,
+execution, and physical-state changes. `api/` owns only HTTP request models,
+status-code translation, route orchestration, and response serialization. Shared
+wardrobe category names, type mappings, descriptions, and artwork live in
+`data/categories.yaml`; the API sends that catalog to the frontend so React does
+not maintain a second copy.
+
 ## Quick start
 
 Requirements:
@@ -87,23 +94,22 @@ Create a private local dataset from the sanitized starter files:
 cp data/examples/*.yaml data/
 ```
 
-Install and start the API from the repository root:
+Install the backend and frontend dependencies from the repository root:
 
 ```sh
 python3 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip
 ./.venv/bin/python -m pip install -e '.[dev]'
-./.venv/bin/uvicorn api.app:app --reload
+npm --prefix web ci
 ```
 
-In a second terminal, start the web app:
+Start the whole application with one command:
 
 ```sh
-cd web
-npm ci
-npm run dev
+./.venv/bin/loadout-dev
 ```
 
+The launcher starts both local services and stops both when you press Ctrl-C.
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173).
 
 ## Data model
@@ -209,14 +215,8 @@ npm run build
 ```
 
 GitHub Actions runs the generalized suite on Python 3.9 and 3.12, builds and
-installs the wheel outside the checkout, verifies the Ruby compatibility entry
-point, and builds the frontend from `package-lock.json`.
-
-`scripts/validate_inventory.rb [DATA_DIR]` is a compatibility wrapper around
-the Python validator so there is only one schema implementation. The legacy
-inventory migration is non-writing by default: inspect it with
-`scripts/migrate_inventory_v2.rb --dry-run --path PATH`, then pass `--confirm`
-to write an atomic migration and retain a `.v1.bak` backup.
+installs the wheel outside the checkout, and builds the frontend from
+`package-lock.json`.
 
 The default suite is intentionally independent of the local wardrobe. It uses
 the complete synthetic lifecycle in `data/examples/`, an injected in-memory
@@ -257,17 +257,18 @@ LoadOut stores personal inventory and itinerary data as local YAML files, and `.
 ## Project layout
 
 ```text
-api/                    FastAPI adapter
+api/                    Thin FastAPI adapter, grouped by HTTP responsibility
 inventory_toolkit/      Validation, queries, planning, packing, and execution
-scripts/                Migration and standalone validation utilities
 web/                    React + Vite interface
-data/                   Local YAML state plus shareable rules
+data/                   Local YAML state plus shared rules and UI catalog
 data/examples/          Sanitized starter dataset
 logo.svg                LoadOut mark and README artwork
 ```
 
 ## License
 
-LoadOut is released under the [MIT License](./LICENSE). See
-[ASSETS.md](./ASSETS.md) for the visual-asset provenance record, including the
-embedded OpenAI C2PA Content Credentials.
+LoadOut is released under the [MIT License](./LICENSE). The intentionally
+tracked [security policy](./SECURITY.md) documents the safe local-only
+deployment boundary. [ASSETS.md](./ASSETS.md) is retained as the provenance and
+licensing record for the generated imagery, including its embedded OpenAI C2PA
+Content Credentials.
