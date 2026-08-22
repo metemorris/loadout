@@ -155,6 +155,22 @@ export interface TripDetailResponse {
 
 export interface InventoryResponse { items: InventoryItem[]; count: number }
 
+export interface InventoryOptions {
+  itemTypes: string[]
+  uses: string[]
+}
+
+export interface InventoryCreatePayload {
+  name: string
+  type: string
+  current_location: string
+  preferred_location: string
+  attributes: Record<string, string>
+  uses: string[]
+  condition?: string
+  notes?: string
+}
+
 export interface PackingBatchResponse {
   execution: TripExecution
   items: InventoryItem[]

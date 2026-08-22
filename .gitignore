@@ -89,3 +89,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.code-workspace
+
+# Local UI design-review artifacts. Published product screenshots should be
+# captured from a running build and added deliberately.
+/assets/design-proposals/
+/assets/screenshots/wardrobe-add-item-contextual.png
+/assets/screenshots/wardrobe-add-item-global.png

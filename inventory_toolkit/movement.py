@@ -284,12 +284,11 @@ def update_item_status(
         return ItemStateResult(updated, True)
 
 
-def register_purchased_item(
+def _register_new_item(
     item_id: str,
     definition_id: str,
     current_location: str,
     *,
-    confirmed: bool = False,
     data_dir: Optional[Path] = None,
     name: Optional[str] = None,
     item_type: Optional[str] = None,
@@ -299,13 +298,8 @@ def register_purchased_item(
     condition: Optional[str] = None,
     status: Optional[str] = None,
     notes: Optional[str] = None,
+    source_notes: str,
 ) -> ItemStateResult:
-    """Register a retained purchase as one new physical possession."""
-
-    if not confirmed:
-        raise StateConfirmationRequiredError(
-            "confirmation required to register purchased item {!r}".format(item_id)
-        )
     directory = _data_directory(data_dir)
     lock_path = directory / ".inventory.lock"
     with lock_path.open("a+", encoding="utf-8") as lock:
@@ -323,13 +317,13 @@ def register_purchased_item(
             source["id"] for definition in raw["definitions"] for source in definition["sources"]
         }
         if item_id in source_ids:
-            raise MovementError("purchase source id {!r} already exists".format(item_id))
+            raise MovementError("inventory source id {!r} already exists".format(item_id))
         definition = definitions.get(definition_id)
         if definition is None:
             if not isinstance(name, str) or not name.strip():
-                raise MovementError("name is required for a new purchased-item definition")
+                raise MovementError("name is required for a new item definition")
             if not isinstance(item_type, str) or not item_type.strip():
-                raise MovementError("item_type is required for a new purchased-item definition")
+                raise MovementError("item_type is required for a new item definition")
             definition = {
                 "id": definition_id,
                 "name": name.strip(),
@@ -352,7 +346,7 @@ def register_purchased_item(
                 "original_location": location_id,
                 "original_quantity": 1,
                 "original_condition": condition,
-                "notes": "Purchased during trip execution.",
+                "notes": source_notes,
             }
         )
         raw["instances"].append(
@@ -371,3 +365,81 @@ def register_purchased_item(
         payload = _validated_yaml(raw, directory)
         _atomic_replace(path, payload)
         return ItemStateResult(load_inventory(directory).resolve_item(item_id), True)
+
+
+def register_inventory_item(
+    item_id: str,
+    definition_id: str,
+    current_location: str,
+    *,
+    confirmed: bool = False,
+    data_dir: Optional[Path] = None,
+    name: Optional[str] = None,
+    item_type: Optional[str] = None,
+    attributes: Optional[Mapping[str, Any]] = None,
+    uses: Sequence[str] = (),
+    preferred_location: Optional[str] = None,
+    condition: Optional[str] = None,
+    status: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> ItemStateResult:
+    """Register one physical possession through the general inventory workflow."""
+
+    if not confirmed:
+        raise StateConfirmationRequiredError(
+            "confirmation required to register inventory item {!r}".format(item_id)
+        )
+    return _register_new_item(
+        item_id,
+        definition_id,
+        current_location,
+        data_dir=data_dir,
+        name=name,
+        item_type=item_type,
+        attributes=attributes,
+        uses=uses,
+        preferred_location=preferred_location,
+        condition=condition,
+        status=status,
+        notes=notes,
+        source_notes="Added through the confirmed inventory workflow.",
+    )
+
+
+def register_purchased_item(
+    item_id: str,
+    definition_id: str,
+    current_location: str,
+    *,
+    confirmed: bool = False,
+    data_dir: Optional[Path] = None,
+    name: Optional[str] = None,
+    item_type: Optional[str] = None,
+    attributes: Optional[Mapping[str, Any]] = None,
+    uses: Sequence[str] = (),
+    preferred_location: Optional[str] = None,
+    condition: Optional[str] = None,
+    status: Optional[str] = None,
+    notes: Optional[str] = None,
+) -> ItemStateResult:
+    """Register a retained purchase as one new physical possession."""
+
+    if not confirmed:
+        raise StateConfirmationRequiredError(
+            "confirmation required to register purchased item {!r}".format(item_id)
+        )
+    return _register_new_item(
+        item_id,
+        definition_id,
+        current_location,
+        data_dir=data_dir,
+        name=name,
+        item_type=item_type,
+        attributes=attributes,
+        uses=uses,
+        preferred_location=preferred_location,
+        condition=condition,
+        status=status,
+        notes=notes,
+        source_notes="Purchased during trip execution.",
+    )

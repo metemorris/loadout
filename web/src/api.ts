@@ -1,4 +1,4 @@
-import type { InventoryResponse, LocationDetail, MovementPlan, Overview, PackingBatchResponse, PackingSection, TripDetailResponse, TripListResponse } from './types'
+import type { InventoryCreatePayload, InventoryItem, InventoryOptions, InventoryResponse, LocationDetail, MovementPlan, Overview, PackingBatchResponse, PackingSection, TripDetailResponse, TripListResponse } from './types'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -16,6 +16,11 @@ export const api = {
   overview: () => request<Overview>('/api/overview'),
   location: (id: string) => request<LocationDetail>(`/api/locations/${encodeURIComponent(id)}`),
   inventory: () => request<InventoryResponse>('/api/inventory'),
+  inventoryOptions: () => request<InventoryOptions>('/api/inventory/options'),
+  createInventoryItem: (payload: InventoryCreatePayload) => request<{ item: InventoryItem; applied: boolean }>('/api/inventory/items', {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, confirmed: true }),
+  }),
   trips: () => request<TripListResponse>('/api/trips'),
   trip: (id: string) => request<TripDetailResponse>(`/api/trips/${encodeURIComponent(id)}`),
   swapCandidates: (tripId: string, planId: string, itemId: string) => request<InventoryResponse>(`/api/trips/${encodeURIComponent(tripId)}/packing-plans/${encodeURIComponent(planId)}/swap-candidates?item_id=${encodeURIComponent(itemId)}`),
@@ -40,7 +45,8 @@ export const api = {
   addPackingItem: (tripId: string, payload: {
     plan_id: string
     item_id: string
-    container: string
+    section?: 'pack' | 'wear_in_transit'
+    container?: string
     reason?: string
   }) => request<TripDetailResponse>(`/api/trips/${encodeURIComponent(tripId)}/packing-plan-items`, {
     method: 'POST',

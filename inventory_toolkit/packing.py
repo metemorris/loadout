@@ -600,7 +600,14 @@ def compile_packing_context(
     )
 
 
-def _parse_plan_store(raw: Any, schema: Any, data_dir: Path) -> PackingPlanCatalog:
+def _parse_plan_store(
+    raw: Any,
+    schema: Any,
+    data_dir: Path,
+    *,
+    inventory: Any = None,
+    trips: Any = None,
+) -> PackingPlanCatalog:
     errors: List[str] = []
     if not isinstance(schema, dict) or schema.get("version") != 8:
         errors.append("schema.yaml: version must be 8")
@@ -615,8 +622,8 @@ def _parse_plan_store(raw: Any, schema: Any, data_dir: Path) -> PackingPlanCatal
     if not isinstance(raw, dict) or set(raw) != {"plans"} or not isinstance(raw.get("plans"), list):
         errors.append("packing_plans.yaml: root must contain only a plans list")
         raw = {"plans": []}
-    inventory = load_inventory(data_dir)
-    trips = load_trips(data_dir)
+    inventory = inventory if inventory is not None else load_inventory(data_dir)
+    trips = trips if trips is not None else load_trips(data_dir)
     inventory_items = {item.id: item for item in inventory.items}
     inventory_locations = {location.id: location for location in inventory.locations}
     allowed_statuses = schema.get("packing_plans", {}).get("allowed_statuses", [])
@@ -956,7 +963,11 @@ def save_packing_plan(
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         raw = _read_yaml(path)
         schema = _read_yaml(directory / "schema.yaml")
-        catalog = _parse_plan_store(raw, schema, directory)
+        inventory = load_inventory(directory)
+        trips = load_trips(directory)
+        catalog = _parse_plan_store(
+            raw, schema, directory, inventory=inventory, trips=trips
+        )
         existing = {value.id for value in catalog.plans}
         if plan.id in existing and not replace_existing:
             raise PackingValidationError(
@@ -973,11 +984,19 @@ def save_packing_plan(
             raw_plans[next(index for index, value in enumerate(raw_plans) if value.get("id") == plan.id)] = raw_plan
         else:
             raw_plans.append(raw_plan)
-        validated = _parse_plan_store(raw, schema, directory)
+        validated = _parse_plan_store(
+            raw, schema, directory, inventory=inventory, trips=trips
+        )
         payload = yaml.safe_dump(
             raw, allow_unicode=True, default_flow_style=False, sort_keys=False, width=1000
         )
-        _parse_plan_store(yaml.safe_load(payload), schema, directory)
+        _parse_plan_store(
+            yaml.safe_load(payload),
+            schema,
+            directory,
+            inventory=inventory,
+            trips=trips,
+        )
         _atomic_replace(path, payload)
         return validated.get(plan.id)
 

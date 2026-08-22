@@ -1,14 +1,23 @@
 """Health, inventory-query, location, and physical-movement routes."""
 
+import re
+import unicodedata
 from typing import Any, Dict, Optional
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, Query as ApiQuery
 
 from inventory_toolkit.models import Query
-from inventory_toolkit.movement import MovementError, move_items, plan_movement
+from inventory_toolkit.movement import (
+    MovementError,
+    move_items,
+    plan_movement,
+    register_inventory_item,
+)
+from inventory_toolkit.paths import default_data_directory
 
 from ..context import ApiContext, get_context
-from ..requests import MovementRequest
+from ..requests import InventoryItemRequest, MovementRequest
 from ..serializers import (
     category_payloads,
     grouped_item_payloads,
@@ -19,6 +28,25 @@ from ..serializers import (
 
 
 router = APIRouter(prefix="/api")
+
+
+def _new_item_id(name: str, preferred_location: str, inventory: Any) -> str:
+    """Build a readable, collision-free ID without exposing IDs in the UI."""
+
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.casefold()).strip("-") or "item"
+    base = "{}-{}".format(preferred_location, slug)
+    taken = {item.id for item in inventory.items}
+    taken.update(definition.id for definition in inventory.definitions)
+    taken.update(
+        source.id for definition in inventory.definitions for source in definition.sources
+    )
+    if base not in taken:
+        return base
+    suffix = 2
+    while "{}-{:02d}".format(base, suffix) in taken:
+        suffix += 1
+    return "{}-{:02d}".format(base, suffix)
 
 
 @router.get("/health")
@@ -102,6 +130,54 @@ def query_inventory(
     except (LookupError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"items": [item_payload(item) for item in items], "count": len(items)}
+
+
+@router.get("/inventory/options")
+def inventory_options(context: ApiContext = Depends(get_context)) -> Dict[str, Any]:
+    """Return schema-backed choices used by the add-item form."""
+
+    repository_dir = context.repository.data_dir if context.repository is not None else None
+    schema_path = (repository_dir or default_data_directory()) / "schema.yaml"
+    with schema_path.open("r", encoding="utf-8") as handle:
+        schema = yaml.safe_load(handle)
+    definitions = schema.get("definitions", {}) if isinstance(schema, dict) else {}
+    return {
+        "itemTypes": definitions.get("allowed_types", []),
+        "uses": definitions.get("allowed_uses", []),
+    }
+
+
+@router.post("/inventory/items")
+def create_inventory_item(
+    request: InventoryItemRequest,
+    context: ApiContext = Depends(get_context),
+) -> Dict[str, Any]:
+    """Register one confirmed physical possession in the durable inventory."""
+
+    if not request.confirmed:
+        raise HTTPException(status_code=428, detail="Explicit confirmation is required")
+    inventory = context.snapshot().inventory
+    try:
+        current_location = inventory.resolve_location(request.current_location).id
+        preferred_location = inventory.resolve_location(request.preferred_location).id
+        item_id = _new_item_id(request.name, preferred_location, inventory)
+        result = register_inventory_item(
+            item_id,
+            item_id,
+            current_location,
+            confirmed=True,
+            data_dir=context.durable_data_dir(),
+            name=request.name,
+            item_type=request.item_type,
+            attributes=request.attributes,
+            uses=request.uses,
+            preferred_location=preferred_location,
+            condition=request.condition,
+            notes=request.notes,
+        )
+    except (MovementError, LookupError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"item": item_payload(result.item), "applied": result.applied}
 
 
 @router.post("/movements/preview")
