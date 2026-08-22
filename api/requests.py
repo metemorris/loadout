@@ -1,6 +1,6 @@
 """Validated request bodies accepted by the LoadOut HTTP API."""
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,20 @@ class MovementRequest(BaseModel):
     destination: str
     reason: Optional[str] = None
     update_preferred: bool = False
+    confirmed: bool = False
+
+
+class InventoryItemRequest(BaseModel):
+    """Create one explicitly confirmed physical inventory possession."""
+
+    name: str = Field(min_length=1)
+    item_type: str = Field(alias="type", min_length=1)
+    current_location: str = Field(min_length=1)
+    preferred_location: str = Field(min_length=1)
+    attributes: Dict[str, Any] = Field(default_factory=dict)
+    uses: List[str] = Field(default_factory=list)
+    condition: Optional[str] = None
+    notes: Optional[str] = None
     confirmed: bool = False
 
 
@@ -48,7 +62,8 @@ class PackingPlanItemRequest(BaseModel):
 
     plan_id: str
     item_id: str
-    container: str
+    section: str = "pack"
+    container: Optional[str] = None
     reason: Optional[str] = None
     confirmed: bool = False
 

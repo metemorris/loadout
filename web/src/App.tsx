@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   DndContext,
   KeyboardSensor,
@@ -31,30 +31,40 @@ import {
 import {
   Archive,
   ArrowLeftRight,
+  Backpack,
+  BriefcaseBusiness,
+  Building2,
   CalendarDays,
   Check,
+  ChevronDown,
+  ChevronUp,
   CloudOff,
   Home,
   House,
   LoaderCircle,
   ListChecks,
+  MapPinHouse,
   Menu,
   MoreHorizontal,
   PackageCheck,
   Plane,
   Plus,
   Search,
+  ShoppingBag,
   Luggage,
   Shirt,
   Sparkles,
   Star,
   Trash2,
+  Warehouse,
   X,
 } from 'lucide-react'
 import { api } from './api'
 import type {
   CategoryGroup,
+  InventoryCreatePayload,
   InventoryItem,
+  InventoryOptions,
   LocationDetail,
   LocationSummary,
   Mode,
@@ -108,27 +118,32 @@ function useServerData() {
   return { overview, trips, loading, error, refresh }
 }
 
-function Brand() {
-  return (
-    <div className="brand">
+function Brand({ onHome }: { onHome?: () => void }) {
+  const content = (
+    <>
       <img className="brand-mark" src="/logo.svg" alt="" />
       <div className="brand-copy">
         <div className="brand-name">LoadOut</div>
         <div className="brand-subtitle">Wardrobe logistics</div>
       </div>
-    </div>
+    </>
   )
+  return onHome
+    ? <button type="button" className="brand brand-home" onClick={onHome} aria-label="Go to home wardrobe">{content}</button>
+    : <div className="brand">{content}</div>
 }
 
-function TopBar({ mode, onModeChange, query, onQueryChange }: {
+function TopBar({ mode, onModeChange, onHome, onAddItem, query, onQueryChange }: {
   mode: Mode
   onModeChange: (mode: Mode) => void
+  onHome: () => void
+  onAddItem: () => void
   query: string
   onQueryChange: (query: string) => void
 }) {
   return (
     <header className="topbar">
-      <Brand />
+      <Brand onHome={onHome} />
       <div className="topbar-divider" />
       <nav className="mode-switcher" aria-label="Primary navigation">
         <button className={mode === 'wardrobe' ? 'mode-button active' : 'mode-button'} onClick={() => onModeChange('wardrobe')}>
@@ -138,6 +153,7 @@ function TopBar({ mode, onModeChange, query, onQueryChange }: {
           <Plane size={19} strokeWidth={1.8} /> Trips
         </button>
       </nav>
+      {mode === 'wardrobe' && <button type="button" className="topbar-add-item" onClick={onAddItem} aria-label="Add item"><Plus size={18} /><span>Add item</span></button>}
       <label className="global-search">
         <Search size={18} strokeWidth={1.6} />
         <input
@@ -152,8 +168,34 @@ function TopBar({ mode, onModeChange, query, onQueryChange }: {
   )
 }
 
-function LocationIcon({ location }: { location: LocationSummary }) {
-  return location.kind === 'home' ? <House size={19} strokeWidth={1.55} /> : <Luggage size={19} strokeWidth={1.55} />
+const LOCATION_ICON_OPTIONS = {
+  house: { label: 'House', icon: House },
+  building: { label: 'Apartment', icon: Building2 },
+  address: { label: 'Address', icon: MapPinHouse },
+  warehouse: { label: 'Storage', icon: Warehouse },
+  suitcase: { label: 'Suitcase', icon: Luggage },
+  carry_on: { label: 'Carry-on', icon: BriefcaseBusiness },
+  duffel: { label: 'Duffel', icon: ShoppingBag },
+  backpack: { label: 'Backpack', icon: Backpack },
+} as const
+
+type LocationIconName = keyof typeof LOCATION_ICON_OPTIONS
+type LocationIconPreferences = Record<string, LocationIconName>
+
+function defaultLocationIcon(location: LocationSummary, index: number): LocationIconName {
+  const identity = `${location.id} ${location.name}`.toLowerCase()
+  if (location.kind === 'travel_container') {
+    if (identity.includes('backpack')) return 'backpack'
+    if (identity.includes('duffel')) return 'duffel'
+    if (identity.includes('carry')) return 'carry_on'
+    return 'suitcase'
+  }
+  return (['house', 'building', 'address'] as const)[index % 3]
+}
+
+function LocationIcon({ name, size = 19 }: { name: LocationIconName; size?: number }) {
+  const Icon = LOCATION_ICON_OPTIONS[name].icon
+  return <Icon size={size} strokeWidth={1.55} />
 }
 
 function containerCapacityLabel(location: LocationSummary) {
@@ -162,59 +204,79 @@ function containerCapacityLabel(location: LocationSummary) {
   return `${capacity.estimatedUsedSpaceLiters} / ${capacity.capacityLiters} L · ${capacity.estimatedLoadKg} / ${capacity.maxLoadKg} kg`
 }
 
-function DroppableLocation({ location, active, onSelect, dragging }: {
+function DroppableLocation({ location, active, onSelect, dragging, icon, onIconChange }: {
   location: LocationSummary
   active: boolean
   onSelect: () => void
   dragging: boolean
+  icon: LocationIconName
+  onIconChange: (icon: LocationIconName) => void
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: `location:${location.id}` })
+  const [choosingIcon, setChoosingIcon] = useState(false)
+  const iconOptions = Object.entries(LOCATION_ICON_OPTIONS) as Array<[LocationIconName, typeof LOCATION_ICON_OPTIONS[LocationIconName]]>
   return (
-    <button
+    <div
       ref={setNodeRef}
       className={`location-row ${active ? 'active' : ''} ${isOver ? 'drop-over' : ''} ${dragging ? 'drop-ready' : ''}`}
-      onClick={onSelect}
     >
-      <LocationIcon location={location} />
-      <span>
-        <strong>{location.name}</strong>
-        <small>{location.kind === 'home' ? `${location.itemCount} items · Home` : `${location.itemCount} items · ${containerCapacityLabel(location)}`}</small>
-      </span>
+      <button className="location-select" type="button" onClick={onSelect}>
+        <LocationIcon name={icon} />
+        <span>
+          <strong>{location.name}</strong>
+          <small>{location.kind === 'home' ? `${location.itemCount} items · Home` : `${location.itemCount} items · ${containerCapacityLabel(location)}`}</small>
+        </span>
+      </button>
+      <button className="location-icon-button" type="button" onClick={() => setChoosingIcon(value => !value)} aria-label={`Change icon for ${location.name}`} aria-expanded={choosingIcon}>
+        <MoreHorizontal size={16} />
+      </button>
       {isOver && <span className="drop-label">Move here</span>}
-    </button>
+      {choosingIcon && <div className="location-icon-picker" role="group" aria-label={`Icons for ${location.name}`}>
+        {iconOptions.map(([name, option]) => <button key={name} type="button" className={icon === name ? 'active' : ''} onClick={() => { onIconChange(name); setChoosingIcon(false) }} aria-label={option.label} title={option.label}><LocationIcon name={name} size={18} /></button>)}
+      </div>}
+    </div>
   )
 }
 
-function Sidebar({ overview, selectedId, onSelect, mode, dragging }: {
+function Sidebar({ overview, selectedId, onSelect, dragging, iconPreferences, onIconChange }: {
   overview: Overview
   selectedId: string
   onSelect: (id: string) => void
-  mode: Mode
   dragging: boolean
+  iconPreferences: LocationIconPreferences
+  onIconChange: (id: string, icon: LocationIconName) => void
 }) {
+  const [showUnusedContainers, setShowUnusedContainers] = useState(false)
   const homes = overview.locations.filter(location => location.kind === 'home')
-  const containers = overview.locations.filter(location => location.kind === 'travel_container' && location.itemCount > 0)
-  const primaryHome = [...homes].sort((a, b) => b.itemCount - a.itemCount)[0]
+  const containers = overview.locations.filter(location => location.kind === 'travel_container')
+  const usedContainers = containers.filter(location => location.itemCount > 0)
+  const unusedContainers = containers.filter(location => location.itemCount === 0)
+  const iconFor = (location: LocationSummary) => iconPreferences[location.id] || defaultLocationIcon(location, overview.locations.indexOf(location))
   return (
     <aside className="sidebar">
-      <button className="sidebar-home" type="button" onClick={() => primaryHome && onSelect(primaryHome.id)}>
-        <Home size={20} strokeWidth={1.6} />
-        <div><strong>{mode === 'wardrobe' ? 'Home / Wardrobe' : 'Trip Containers'}</strong><small>Local inventory</small></div>
-      </button>
       <div className="sidebar-label">Homes</div>
       <div className="location-list">
         {homes.map(location => (
-          <DroppableLocation key={location.id} location={location} active={selectedId === location.id} onSelect={() => onSelect(location.id)} dragging={dragging} />
+          <DroppableLocation key={location.id} location={location} active={selectedId === location.id} onSelect={() => onSelect(location.id)} dragging={dragging} icon={iconFor(location)} onIconChange={icon => onIconChange(location.id, icon)} />
         ))}
       </div>
       <div className="sidebar-label">Travel containers</div>
-      <div className="location-list">
-        {containers.map(location => (
-          <DroppableLocation key={location.id} location={location} active={selectedId === location.id} onSelect={() => onSelect(location.id)} dragging={dragging} />
+      {usedContainers.length > 0 && <div className="location-list">
+        {usedContainers.map(location => (
+          <DroppableLocation key={location.id} location={location} active={selectedId === location.id} onSelect={() => onSelect(location.id)} dragging={dragging} icon={iconFor(location)} onIconChange={icon => onIconChange(location.id, icon)} />
         ))}
-      </div>
+      </div>}
+      {unusedContainers.length > 0 && <>
+        <button className="unused-containers-toggle" type="button" onClick={() => setShowUnusedContainers(value => !value)} aria-expanded={showUnusedContainers}>
+          <span>Unused containers</span><small>{unusedContainers.length}</small>{showUnusedContainers ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+        </button>
+        {showUnusedContainers && <div className="location-list unused-container-list">
+          {unusedContainers.map(location => (
+            <DroppableLocation key={location.id} location={location} active={selectedId === location.id} onSelect={() => onSelect(location.id)} dragging={dragging} icon={iconFor(location)} onIconChange={icon => onIconChange(location.id, icon)} />
+          ))}
+        </div>}
+      </>}
       <div className="sidebar-spacer" />
-      <div className="safety-note"><PackageCheck size={17} /><span>Every physical move requires confirmation.</span></div>
     </aside>
   )
 }
@@ -351,8 +413,6 @@ function WardrobeView({ detail, category, onCategory, query }: {
   onCategory: (category: CategoryGroup | null) => void
   query: string
 }) {
-  const [filter, setFilter] = useState<string>('all')
-  useEffect(() => { if (query) setFilter('all') }, [query])
   const displayCategories = detail.categories
   const searchedGroups = useMemo(() => {
     const needle = query.toLowerCase().trim()
@@ -365,9 +425,6 @@ function WardrobeView({ detail, category, onCategory, query }: {
       return { ...group, items, count: items.length }
     }).filter(group => group.count > 0)
   }, [displayCategories, query])
-  const visible = filter === 'all' ? searchedGroups : searchedGroups.filter(group => group.id === filter)
-  const matchCount = searchedGroups.reduce((total, group) => total + group.count, 0)
-  const awayCount = detail.categories.flatMap(group => group.items).filter(item => item.currentLocation !== item.preferredLocation).length
   return (
     <main className="main-panel">
       <div className="view-header">
@@ -378,21 +435,16 @@ function WardrobeView({ detail, category, onCategory, query }: {
           <div><strong>{detail.location.itemCount}</strong><small>Items</small></div>
         </div>
       </div>
-      {visible.length ? (
+      {searchedGroups.length ? (
         <div className="category-grid">
-          {visible.map(group => <CategoryCard key={group.id} group={group} onOpen={() => onCategory(group)} />)}
+          {searchedGroups.map(group => <CategoryCard key={group.id} group={group} onOpen={() => onCategory(group)} />)}
         </div>
       ) : query ? (
         <div className="empty-state search-empty"><Search size={38} /><h2>No wardrobe matches</h2><p>Try an item name, type, color, use, or attribute.</p></div>
       ) : (
         <div className="empty-state"><Archive size={42} /><h2>This location is empty</h2><p>Move physical items here when you are ready. Nothing planned is treated as packed.</p></div>
       )}
-      <footer className="filter-bar">
-        <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}><span>{query ? 'Matches' : 'All items'}</span><strong>{query ? matchCount : detail.location.itemCount}</strong></button>
-        {displayCategories.map(group => <button key={group.id} className={filter === group.id ? 'active' : ''} onClick={() => setFilter(group.id)}><span>{group.name}</span><strong>{group.count}</strong></button>)}
-        <div className="away-indicator"><ArrowLeftRight size={16} /> {awayCount} away from preferred</div>
-      </footer>
-      <CategoryDrawer group={category} location={detail.location} onClose={() => onCategory(null)} />
+      <CategoryDrawer key={`${detail.location.id}:${category?.id || 'closed'}`} group={category} location={detail.location} onClose={() => onCategory(null)} />
     </main>
   )
 }
@@ -434,8 +486,8 @@ type PendingPackingAction = {
 }
 
 type PendingPackingEdit =
-  | { mode: 'add'; plan: PackingPlan; candidates: InventoryItem[]; containers: LocationSummary[] }
-  | { mode: 'container'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; physicallyPacked: boolean }
+  | { mode: 'add'; plan: PackingPlan; section: 'pack' | 'wear_in_transit'; candidates: InventoryItem[]; containers: LocationSummary[]; categoryLabels: Record<string, string>; locationLabels: Record<string, string> }
+  | { mode: 'container'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; assignedContainerIds: string[]; physicallyPacked: boolean }
   | { mode: 'unpack'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; returnTo: string }
 
 const ACTIVE_EXECUTION_STATUSES = new Set(['preparing', 'in_progress', 'reconciling'])
@@ -457,14 +509,15 @@ function visiblePackingPlan(detail: TripDetailResponse): PackingPlan | undefined
   return detail.plans.at(-1)
 }
 
-function PackingListSurface({ detail, locationNames, query, busy, view = 'pack', onAction, onAddItem, onChangeContainer, onUnpack }: {
+function PackingListSurface({ detail, availableContainers, locationNames, query, busy, view = 'pack', onAction, onAddItem, onChangeContainer, onUnpack }: {
   detail: TripDetailResponse
+  availableContainers: LocationSummary[]
   locationNames: Record<string, string>
   query: string
   busy: boolean
   view?: 'pack' | 'unpack'
   onAction: (pending: PendingPackingAction) => void
-  onAddItem: (plan: PackingPlan) => void
+  onAddItem: (plan: PackingPlan, section: 'pack' | 'wear_in_transit') => void
   onChangeContainer: (pending: Extract<PendingPackingEdit, { mode: 'container' }>) => void
   onUnpack: (pending: Extract<PendingPackingEdit, { mode: 'unpack' }>) => void
 }) {
@@ -533,7 +586,7 @@ function PackingListSurface({ detail, locationNames, query, busy, view = 'pack',
   return (
     <section className="packing-surface">
       <div className="packing-summary">
-        <div><span className={`plan-status ${plan.status}`}>{view === 'unpack' ? 'Physical contents' : plan.status === 'draft' ? 'Updated selections' : 'Confirmed plan'}</span><h2>{view === 'unpack' ? 'Unpack your trip' : 'Your packing list'}</h2><p>{view === 'unpack' ? 'Only physically packed items appear here. Every unpack requires confirmation and records a returned outcome.' : plan.status === 'draft' && execution ? 'Your updated selections are shown against factual progress from the active execution.' : plan.status === 'draft' ? 'Review the proposal. Your first confirmed Pack locks the plan and begins factual execution.' : 'Each completed action is recorded in the trip execution ledger.'}</p>{view === 'pack' && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan)}><Plus size={14} /> Add item</button>}</div>
+        <div><span className={`plan-status ${plan.status}`}>{view === 'unpack' ? 'Physical contents' : plan.status === 'draft' ? 'Updated selections' : 'Confirmed plan'}</span><h2>{view === 'unpack' ? 'Unpack your trip' : 'Your packing list'}</h2><p>{view === 'unpack' ? 'Only physically packed items appear here. Every unpack requires confirmation and records a returned outcome.' : plan.status === 'draft' && execution ? 'Your updated selections are shown against factual progress from the active execution.' : plan.status === 'draft' ? 'Review the proposal. Your first confirmed Pack locks the plan and begins factual execution.' : 'Each completed action is recorded in the trip execution ledger.'}</p>{view === 'pack' && (section === 'pack' || section === 'wear_in_transit') && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan, section)}><Plus size={14} /> Add to {PACKING_SECTION_LABELS[section]}</button>}</div>
         <div className="packing-progress"><strong>{packedCount}<span> / {packEntries.length}</span></strong><small>physically packed</small><div><span style={{ width: `${packEntries.length ? completedCount / packEntries.length * 100 : 0}%` }} /></div></div>
       </div>
       {view === 'pack' && <nav className="packing-section-tabs" aria-label="Packing plan sections">
@@ -567,10 +620,14 @@ function PackingListSurface({ detail, locationNames, query, busy, view = 'pack',
               {section === 'pack' && item && status === 'proposed' && <div className="packing-item-actions">
                 <button className="pack-now" disabled={busy} onClick={() => onAction({ action: 'pack', section, entryIndex: index + 1, entry, item, plan, candidates: [], continuesExecution: Boolean(execution) })}><PackageCheck size={16} /> Pack</button>
                 <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Swap item</button>
-                <button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, physicallyPacked: false })}><Luggage size={15} /> Change bag</button>
+                <button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: availableContainers, assignedContainerIds: detail.containers.map(container => container.id), physicallyPacked: false })}><Luggage size={15} /> Change bag</button>
                 <button className="remove-item" disabled={busy} onClick={() => onAction({ action: 'remove', section, entryIndex: index + 1, entry, item, plan, candidates: [] })} aria-label={`Remove ${item.name}`}><Trash2 size={15} /></button>
               </div>}
-              {section === 'pack' && item && status === 'packed' && <div className="packing-item-actions"><button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, physicallyPacked: true })}><Luggage size={15} /> Change bag</button><button className="unpack-item" disabled={busy} onClick={() => { const packedAction = execution?.actions.find(action => action.item === item.id && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && action.source && !luggageIds.has(action.source)); if (packedAction?.source) onUnpack({ mode: 'unpack', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, returnTo: packedAction.source }) }}><Archive size={15} /> Unpack</button></div>}
+              {section === 'wear_in_transit' && item && status === 'proposed' && <div className="packing-item-actions">
+                <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Change item</button>
+                <button className="remove-item" disabled={busy} onClick={() => onAction({ action: 'remove', section, entryIndex: index + 1, entry, item, plan, candidates: [] })} aria-label={`Remove ${item.name}`}><Trash2 size={15} /></button>
+              </div>}
+              {section === 'pack' && item && status === 'packed' && <div className="packing-item-actions"><button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: availableContainers, assignedContainerIds: detail.containers.map(container => container.id), physicallyPacked: true })}><Luggage size={15} /> Change bag</button><button className="unpack-item" disabled={busy} onClick={() => { const packedAction = execution?.actions.find(action => action.item === item.id && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && action.source && !luggageIds.has(action.source)); if (packedAction?.source) onUnpack({ mode: 'unpack', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, returnTo: packedAction.source }) }}><Archive size={15} /> Unpack</button></div>}
               {status !== 'proposed' && <span className={`outcome-mark ${status}`}>{status === 'packed' ? <Check size={18} /> : status === 'swapped' ? <ArrowLeftRight size={18} /> : <X size={18} />}</span>}
             </article>
           )
@@ -596,13 +653,16 @@ function PackingActionDialog({ pending, busy, error, onClose, onConfirm }: {
   const startsExecution = pending.plan.status === 'draft' && pending.action === 'pack' && !pending.continuesExecution
   const batchCount = pending.batch?.length || 0
   const targetLabel = batchCount > 1 ? `${batchCount} selected items` : pending.item.name
+  const replacementType = pending.item.type.replaceAll('_', ' ')
+  const sameTypeCandidates = pending.candidates.filter(candidate => candidate.type === pending.item.type)
+  const editsWearSelection = pending.section === 'wear_in_transit' && (pending.action === 'swap' || pending.action === 'remove')
   return (
     <div className="modal-backdrop" role="presentation">
       <motion.div className="move-dialog packing-dialog" role="dialog" aria-modal="true" aria-labelledby="packing-dialog-title" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
         <div className="dialog-icon">{pending.action === 'pack' ? <PackageCheck /> : pending.action === 'swap' ? <ArrowLeftRight /> : <Trash2 />}</div>
         <div><small>Confirm packing action</small><h2 id="packing-dialog-title">{verb} {targetLabel}?</h2></div>
-        {pending.action === 'swap' && <div className="swap-fields"><label className="dialog-field">Replacement<select value={replacementId} onChange={event => setReplacementId(event.target.value)}><option value="">Choose an item</option>{pending.candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.currentLocation}</option>)}</select></label><label className="dialog-field">Why are you swapping?<textarea value={swapNotes} onChange={event => setSwapNotes(event.target.value)} placeholder="Fit, weather, color, comfort, condition…" rows={3} /><small>This note is saved with the decision as evidence for future recommendations.</small></label></div>}
-        <p>{startsExecution ? `This confirms the proposed plan, creates its execution ledger, and moves ${batchCount > 1 ? 'these exact items' : 'this exact item'} into the assigned container${batchCount > 1 ? 's' : ''}. ` : pending.action === 'pack' && pending.continuesExecution && pending.plan.status === 'draft' ? 'This records the updated selection in the active execution without replacing its confirmed plan. ' : ''}{pending.action === 'pack' ? `${batchCount > 1 ? 'Every packed outcome and physical location change' : 'The packed outcome and physical location change'} will be recorded.` : pending.action === 'swap' ? pending.plan.status === 'draft' ? 'This updates only the draft recommendation; no item moves yet.' : 'The original decision will be rejected and the replacement will be physically moved and recorded.' : pending.plan.status === 'draft' ? 'This removes the recommendation from the draft; no physical inventory changes.' : 'This records that you rejected this confirmed packing decision.'}</p>
+        {pending.action === 'swap' && <div className="swap-fields"><label className="dialog-field">Replacement · {replacementType}<select value={replacementId} onChange={event => setReplacementId(event.target.value)}><option value="">Choose a {replacementType}</option>{sameTypeCandidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.currentLocation}</option>)}</select><small>Only items of the same type are shown.</small></label><label className="dialog-field">Why are you swapping?<textarea value={swapNotes} onChange={event => setSwapNotes(event.target.value)} placeholder="Fit, weather, color, comfort, condition…" rows={3} /><small>This note is saved with the decision as evidence for future recommendations.</small></label></div>}
+        <p>{startsExecution ? `This confirms the proposed plan, creates its execution ledger, and moves ${batchCount > 1 ? 'these exact items' : 'this exact item'} into the assigned container${batchCount > 1 ? 's' : ''}. ` : pending.action === 'pack' && pending.continuesExecution && pending.plan.status === 'draft' ? 'This records the updated selection in the active execution without replacing its confirmed plan. ' : ''}{pending.action === 'pack' ? `${batchCount > 1 ? 'Every packed outcome and physical location change' : 'The packed outcome and physical location change'} will be recorded.` : pending.action === 'swap' ? editsWearSelection ? 'This updates the wear-in-transit recommendation only; no item moves.' : pending.plan.status === 'draft' ? 'This updates only the draft recommendation; no item moves yet.' : 'The original decision will be rejected and the replacement will be physically moved and recorded.' : editsWearSelection ? 'This removes the item from the wear-in-transit recommendation; no inventory location changes.' : pending.plan.status === 'draft' ? 'This removes the recommendation from the draft; no physical inventory changes.' : 'This records that you rejected this confirmed packing decision.'}</p>
         {error && <div className="dialog-error">{error}</div>}
         <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" onClick={() => onConfirm(replacementId || undefined, swapNotes.trim() || undefined)} disabled={busy || (pending.action === 'swap' && (!replacementId || !swapNotes.trim()))}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm {verb.toLowerCase()}</button></div>
       </motion.div>
@@ -621,32 +681,97 @@ function PackingEditDialog({ pending, busy, error, onClose, onConfirm }: {
   const [container, setContainer] = useState('')
   const [reason, setReason] = useState('')
   const [filter, setFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [locationFilter, setLocationFilter] = useState('all')
+  const addCandidates = pending?.mode === 'add' ? pending.candidates : []
+  const categoryOptions = Array.from(new Set(addCandidates.map(item => item.category))).sort((left, right) => (pending?.mode === 'add' ? pending.categoryLabels[left] || left : left).localeCompare(pending?.mode === 'add' ? pending.categoryLabels[right] || right : right))
+  const locationOptions = Array.from(new Set(addCandidates.map(item => item.currentLocation))).sort((left, right) => (pending?.mode === 'add' ? pending.locationLabels[left] || left : left).localeCompare(pending?.mode === 'add' ? pending.locationLabels[right] || right : right))
+  const needle = filter.toLowerCase().trim()
+  const filteredCandidates = addCandidates.filter(item => (
+    (categoryFilter === 'all' || item.category === categoryFilter)
+    && (locationFilter === 'all' || item.currentLocation === locationFilter)
+    && (!needle || `${item.name} ${item.type} ${item.color || ''}`.toLowerCase().includes(needle))
+  ))
   useEffect(() => {
     setItemId(pending?.mode === 'add' ? pending.candidates[0]?.id || '' : pending?.item.id || '')
     setContainer(pending?.mode === 'unpack' ? pending.returnTo : pending?.mode === 'container' ? pending.entry.container || pending.containers[0]?.id || '' : pending?.containers[0]?.id || '')
     setReason('')
     setFilter('')
+    setCategoryFilter('all')
+    setLocationFilter('all')
   }, [pending])
+  useEffect(() => {
+    if (pending?.mode !== 'add' || filteredCandidates.some(item => item.id === itemId)) return
+    setItemId(filteredCandidates[0]?.id || '')
+  }, [pending, filteredCandidates, itemId])
   if (!pending) return null
-  const filteredCandidates = pending.mode === 'add' ? pending.candidates.filter(item => !filter.trim() || `${item.name} ${item.type} ${item.color || ''} ${item.currentLocation}`.toLowerCase().includes(filter.toLowerCase().trim())) : []
   const selectedItem = pending.mode === 'add' ? pending.candidates.find(item => item.id === itemId) : pending.item
   const currentContainer = pending.mode === 'container' ? pending.entry.container : null
+  const addingToWear = pending.mode === 'add' && pending.section === 'wear_in_transit'
+  const assigningNewTripBag = pending.mode === 'container' && Boolean(container) && !pending.assignedContainerIds.includes(container)
   return (
     <div className="modal-backdrop" role="presentation">
       <motion.div className="move-dialog packing-dialog packing-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="packing-edit-title" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
         <div className="dialog-icon">{pending.mode === 'add' ? <Plus /> : pending.mode === 'unpack' ? <Archive /> : <Luggage />}</div>
-        <div><small>{pending.mode === 'add' ? 'Edit packing list' : pending.mode === 'unpack' ? 'Confirm unpacking' : 'Container assignment'}</small><h2 id="packing-edit-title">{pending.mode === 'add' ? 'Add an owned item' : pending.mode === 'unpack' ? `Unpack ${pending.item.name}?` : `Move ${pending.item.name}?`}</h2></div>
+        <div><small>{pending.mode === 'add' ? 'Edit packing list' : pending.mode === 'unpack' ? 'Confirm unpacking' : 'Container assignment'}</small><h2 id="packing-edit-title">{pending.mode === 'add' ? `Add an item to ${PACKING_SECTION_LABELS[pending.section]}` : pending.mode === 'unpack' ? `Unpack ${pending.item.name}?` : `Move ${pending.item.name}?`}</h2></div>
         <div className="swap-fields">
-          {pending.mode === 'add' && <><label className="dialog-field">Find item<input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Name, type, color, or location" /></label><label className="dialog-field">Item<select value={itemId} onChange={event => setItemId(event.target.value)}><option value="">Choose an item</option>{filteredCandidates.map(item => <option key={item.id} value={item.id}>{item.name} · {item.currentLocation}</option>)}</select></label></>}
-          {pending.mode !== 'unpack' && <label className="dialog-field">Bag<select value={container} onChange={event => setContainer(event.target.value)}><option value="">Choose a bag</option>{pending.containers.map(value => <option key={value.id} value={value.id} disabled={value.id === currentContainer}>{value.name}{value.id === currentContainer ? ' · current' : ''}</option>)}</select></label>}
+          {pending.mode === 'add' && <><div className="add-item-filters"><label className="dialog-field">Category<select value={categoryFilter} onChange={event => setCategoryFilter(event.target.value)}><option value="all">All categories · {pending.candidates.length}</option>{categoryOptions.map(category => <option key={category} value={category}>{pending.categoryLabels[category] || category.replaceAll('_', ' ')} · {pending.candidates.filter(item => item.category === category).length}</option>)}</select></label><label className="dialog-field">Current location<select value={locationFilter} onChange={event => setLocationFilter(event.target.value)}><option value="all">All locations · {pending.candidates.length}</option>{locationOptions.map(location => <option key={location} value={location}>{pending.locationLabels[location] || location} · {pending.candidates.filter(item => item.currentLocation === location).length}</option>)}</select></label></div><label className="dialog-field">Find within selection<input value={filter} onChange={event => setFilter(event.target.value)} placeholder="Name, type, or color" /></label><label className="dialog-field">Item <span className="optional-label">{filteredCandidates.length} matches</span><select value={itemId} onChange={event => setItemId(event.target.value)}><option value="">{filteredCandidates.length ? 'Choose an item' : 'No items match these filters'}</option>{filteredCandidates.map(item => <option key={item.id} value={item.id}>{item.name} · {item.type.replaceAll('_', ' ')} · {pending.locationLabels[item.currentLocation] || item.currentLocation}</option>)}</select></label></>}
+          {pending.mode !== 'unpack' && !addingToWear && <label className="dialog-field">Bag<select value={container} onChange={event => setContainer(event.target.value)}><option value="">Choose a bag</option>{pending.containers.map(value => <option key={value.id} value={value.id} disabled={value.id === currentContainer}>{value.name}{value.id === currentContainer ? ' · current' : pending.mode === 'container' && !pending.assignedContainerIds.includes(value.id) ? ' · add to trip' : ''}</option>)}</select></label>}
           {pending.mode === 'add' && <label className="dialog-field">Reason <span className="optional-label">optional</span><textarea value={reason} onChange={event => setReason(event.target.value)} placeholder="Why this belongs on the trip" rows={2} /></label>}
         </div>
-        <p>{pending.mode === 'add' ? `${selectedItem?.name || 'The selected item'} will be added to the editable packing revision. Nothing moves until you pack it.` : pending.mode === 'unpack' ? `This moves the item from its current bag back to ${pending.returnTo}, records a returned outcome in the execution ledger, and leaves the packing recommendation available to pack again.` : pending.physicallyPacked ? `This item is already packed. Confirming will update the packing revision, physically transfer it to the selected bag, and record the transfer in the execution ledger.` : `This only changes the planned bag. The item will not move until you pack it.`}</p>
+        <p>{pending.mode === 'add' ? addingToWear ? `${selectedItem?.name || 'The selected item'} will be added to the wear-in-transit recommendation. No inventory location changes.` : `${selectedItem?.name || 'The selected item'} will be added to the editable packing revision. Nothing moves until you pack it.` : pending.mode === 'unpack' ? `This moves the item from its current bag back to ${pending.returnTo}, records a returned outcome in the execution ledger, and leaves the packing recommendation available to pack again.` : `${assigningNewTripBag ? 'This bag will also be added to the trip’s available luggage. ' : ''}${pending.physicallyPacked ? 'This item is already packed. Confirming will update the packing revision, physically transfer it to the selected bag, and record the transfer in the execution ledger.' : 'This only changes the planned bag. The item will not move until you pack it.'}`}</p>
         {error && <div className="dialog-error">{error}</div>}
-        <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" disabled={busy || !container || (pending.mode === 'add' && !itemId) || (pending.mode === 'container' && container === currentContainer)} onClick={() => onConfirm(pending.mode === 'add' ? itemId : undefined, container, reason.trim() || undefined)}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm {pending.mode === 'unpack' ? 'unpack' : ''}</button></div>
+        <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" disabled={busy || (!addingToWear && !container) || (pending.mode === 'add' && !itemId) || (pending.mode === 'container' && container === currentContainer)} onClick={() => onConfirm(pending.mode === 'add' ? itemId : undefined, container, reason.trim() || undefined)}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm {pending.mode === 'unpack' ? 'unpack' : ''}</button></div>
       </motion.div>
     </div>
   )
+}
+
+type TripTimeFilter = 'all' | 'current' | 'upcoming' | 'past'
+type TripSort = 'nearest' | 'chronological'
+
+const TRIP_FILTER_STORAGE_KEY = 'loadout.trip-filter'
+const TRIP_SORT_STORAGE_KEY = 'loadout.trip-sort'
+const TRIP_SELECTION_STORAGE_KEY = 'loadout.selected-trip'
+
+function localDateKey(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function tripTimeBucket(trip: TripSummary, today: string): Exclude<TripTimeFilter, 'all'> {
+  if (trip.endDate < today) return 'past'
+  if (trip.startDate > today) return 'upcoming'
+  return 'current'
+}
+
+function compareTrips(left: TripSummary, right: TripSummary, today: string, sort: TripSort) {
+  if (sort === 'chronological') return left.startDate.localeCompare(right.startDate) || left.name.localeCompare(right.name)
+  const order: Record<Exclude<TripTimeFilter, 'all'>, number> = { current: 0, upcoming: 1, past: 2 }
+  const leftBucket = tripTimeBucket(left, today)
+  const rightBucket = tripTimeBucket(right, today)
+  if (leftBucket !== rightBucket) return order[leftBucket] - order[rightBucket]
+  if (leftBucket === 'past') return right.endDate.localeCompare(left.endDate) || left.name.localeCompare(right.name)
+  if (leftBucket === 'current') return left.endDate.localeCompare(right.endDate) || right.startDate.localeCompare(left.startDate) || left.name.localeCompare(right.name)
+  return left.startDate.localeCompare(right.startDate) || left.endDate.localeCompare(right.endDate) || left.name.localeCompare(right.name)
+}
+
+function smartTripSelection(trips: TripSummary[], today: string) {
+  const selectable = trips.filter(trip => trip.status !== 'cancelled')
+  return [...(selectable.length ? selectable : trips)].sort((left, right) => compareTrips(left, right, today, 'nearest'))[0]?.id || null
+}
+
+function tripSearchText(trip: TripSummary, overview: Overview) {
+  const locationNames = new Map(overview.locations.map(location => [location.id, location.name]))
+  return [
+    trip.name,
+    trip.status,
+    ...trip.places.flatMap(place => [place.name, place.notes || '']),
+    ...trip.legs.flatMap(leg => [leg.origin, leg.destination, leg.transport_notes || '']),
+    ...trip.luggage.flatMap(id => [id, locationNames.get(id) || '']),
+  ].join(' ').toLowerCase()
 }
 
 function TripsView({ trips, overview, containerDetails, query, onDataChanged, onLoadContainers }: {
@@ -657,7 +782,15 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   onDataChanged: () => Promise<void>
   onLoadContainers: () => Promise<void>
 }) {
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(trips[0]?.id || null)
+  const today = localDateKey()
+  const [selectedTripId, setSelectedTripId] = useState<string | null>(null)
+  const [tripFilter, setTripFilter] = useState<TripTimeFilter>(() => {
+    const stored = typeof window === 'undefined' ? null : window.sessionStorage.getItem(TRIP_FILTER_STORAGE_KEY)
+    return stored === 'current' || stored === 'upcoming' || stored === 'past' ? stored : 'all'
+  })
+  const [tripSort, setTripSort] = useState<TripSort>(() => (
+    typeof window !== 'undefined' && window.sessionStorage.getItem(TRIP_SORT_STORAGE_KEY) === 'chronological' ? 'chronological' : 'nearest'
+  ))
   const [selectedContainerId, setSelectedContainerId] = useState<string | null>(null)
   const [surface, setSurface] = useState<'packing' | 'unpacking' | 'containers'>('packing')
   const [tripDetail, setTripDetail] = useState<TripDetailResponse | null>(null)
@@ -665,10 +798,22 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   const [pendingEdit, setPendingEdit] = useState<PendingPackingEdit | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const inventoryItems = useRef<InventoryItem[] | null>(null)
+  const inventoryRequest = useRef<Promise<InventoryItem[]> | null>(null)
+  const tripListRef = useRef<HTMLDivElement>(null)
   const trip = trips.find(value => value.id === selectedTripId) || null
   const needle = query.toLowerCase().trim()
-  const visibleTrips = trips.filter(value => !needle || `${value.name} ${value.status} ${value.legs.map(leg => `${leg.origin} ${leg.destination}`).join(' ')}`.toLowerCase().includes(needle))
-  const containers = overview.locations.filter(location => location.kind === 'travel_container' && (!trip || trip.luggage.includes(location.id)))
+  const searchedTrips = trips.filter(value => !needle || tripSearchText(value, overview).includes(needle))
+  const tripCounts = searchedTrips.reduce<Record<TripTimeFilter, number>>((counts, value) => {
+    counts.all += 1
+    counts[tripTimeBucket(value, today)] += 1
+    return counts
+  }, { all: 0, current: 0, upcoming: 0, past: 0 })
+  const visibleTrips = searchedTrips
+    .filter(value => tripFilter === 'all' || tripTimeBucket(value, today) === tripFilter)
+    .sort((left, right) => compareTrips(left, right, today, tripSort))
+  const availableContainers = overview.locations.filter(location => location.kind === 'travel_container')
+  const containers = availableContainers.filter(location => !trip || trip.luggage.includes(location.id))
   const visibleContainers = containers.filter(location => {
     if (!needle) return true
     const contents = containerDetails[location.id]?.categories.flatMap(group => group.items).map(item => `${item.name} ${item.type} ${item.color || ''}`).join(' ') || ''
@@ -677,13 +822,52 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   const selectedContainer = containers.find(container => container.id === selectedContainerId) || containers[0]
   const locationNames = Object.fromEntries(overview.locations.map(location => [location.id, location.name]))
 
+  const loadInventoryItems = useCallback(() => {
+    if (inventoryItems.current) return Promise.resolve(inventoryItems.current)
+    if (!inventoryRequest.current) {
+      inventoryRequest.current = api.inventory()
+        .then(response => {
+          inventoryItems.current = response.items
+          return response.items
+        })
+        .finally(() => { inventoryRequest.current = null })
+    }
+    return inventoryRequest.current
+  }, [])
+
+  useEffect(() => {
+    void loadInventoryItems().catch(() => {
+      // A visible error is shown if the user opens a chooser and retry also fails.
+    })
+  }, [loadInventoryItems])
+
   useEffect(() => {
     if (!trips.length) {
       setSelectedTripId(null)
-    } else if (!selectedTripId || !trips.some(value => value.id === selectedTripId)) {
-      setSelectedTripId(trips[0].id)
+      return
     }
-  }, [trips, selectedTripId])
+    const stored = typeof window === 'undefined' ? null : window.sessionStorage.getItem(TRIP_SELECTION_STORAGE_KEY)
+    if (!selectedTripId || !trips.some(value => value.id === selectedTripId)) {
+      setSelectedTripId(trips.some(value => value.id === stored) ? stored : smartTripSelection(trips, today))
+    }
+  }, [trips, selectedTripId, today])
+
+  useEffect(() => {
+    if (!selectedTripId || !visibleTrips.length || visibleTrips.some(value => value.id === selectedTripId)) return
+    setSelectedTripId(visibleTrips[0].id)
+  }, [visibleTrips, selectedTripId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    window.sessionStorage.setItem(TRIP_FILTER_STORAGE_KEY, tripFilter)
+    window.sessionStorage.setItem(TRIP_SORT_STORAGE_KEY, tripSort)
+    if (selectedTripId) window.sessionStorage.setItem(TRIP_SELECTION_STORAGE_KEY, selectedTripId)
+  }, [tripFilter, tripSort, selectedTripId])
+
+  useEffect(() => {
+    const selected = tripListRef.current?.querySelector<HTMLElement>('[aria-current="true"]')
+    selected?.scrollIntoView({ block: 'nearest' })
+  }, [selectedTripId, tripFilter, query])
 
   useEffect(() => {
     let cancelled = false
@@ -708,8 +892,13 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     if (pending.action !== 'swap' || !trip) { setPendingAction(pending); return }
     setActionBusy(true)
     try {
-      const response = await api.swapCandidates(trip.id, pending.plan.id, pending.item.id)
-      setPendingAction({ ...pending, candidates: response.items })
+      const items = await loadInventoryItems()
+      const plannedIds = new Set(Object.values(pending.plan.sections).flat().map(entry => entry.item).filter(Boolean))
+      const unavailable = new Set(['missing', 'lost', 'loaned', 'repair', 'discarded'])
+      const candidates = items
+        .filter(item => !plannedIds.has(item.id) && item.type === pending.item.type && !unavailable.has(item.status || ''))
+        .sort((left, right) => Number(left.currentLocation !== pending.item.currentLocation) - Number(right.currentLocation !== pending.item.currentLocation) || left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+      setPendingAction({ ...pending, candidates })
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : 'Swap options could not be loaded.')
     } finally {
@@ -717,15 +906,23 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     }
   }
 
-  const prepareAddItem = async (plan: PackingPlan) => {
+  const prepareAddItem = async (plan: PackingPlan, section: 'pack' | 'wear_in_transit') => {
     setActionBusy(true)
     setActionError(null)
     try {
-      const response = await api.inventory()
+      const items = await loadInventoryItems()
       const plannedIds = new Set(Object.values(plan.sections).flat().map(entry => entry.item).filter(Boolean))
       const unavailable = new Set(['missing', 'lost', 'loaned', 'repair', 'discarded'])
-      const candidates = response.items.filter(item => !plannedIds.has(item.id) && !unavailable.has(item.status || ''))
-      setPendingEdit({ mode: 'add', plan, candidates, containers: tripDetail?.containers || [] })
+      const candidates = items.filter(item => !plannedIds.has(item.id) && !unavailable.has(item.status || ''))
+      setPendingEdit({
+        mode: 'add',
+        plan,
+        section,
+        candidates,
+        containers: tripDetail?.containers || [],
+        categoryLabels: Object.fromEntries(overview.categories.map(category => [category.id, category.name])),
+        locationLabels: Object.fromEntries(overview.locations.map(location => [location.id, location.name])),
+      })
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : 'Inventory could not be loaded.')
     } finally {
@@ -739,13 +936,23 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     setActionError(null)
     try {
       const nextDetail = pendingEdit.mode === 'add'
-        ? await api.addPackingItem(trip.id, { plan_id: pendingEdit.plan.id, item_id: itemId || '', container, reason })
+        ? await api.addPackingItem(trip.id, {
+          plan_id: pendingEdit.plan.id,
+          item_id: itemId || '',
+          section: pendingEdit.section,
+          ...(pendingEdit.section === 'pack' ? { container } : {}),
+          reason,
+        })
         : pendingEdit.mode === 'unpack'
           ? await api.unpackPackingItem(trip.id, { plan_id: pendingEdit.plan.id, section: pendingEdit.section, entry_index: pendingEdit.entryIndex })
           : await api.changePackingContainer(trip.id, { plan_id: pendingEdit.plan.id, section: pendingEdit.section, entry_index: pendingEdit.entryIndex, container })
       setTripDetail(nextDetail)
       setPendingEdit(null)
-      await onDataChanged()
+      if (pendingEdit.mode === 'unpack' || (pendingEdit.mode === 'container' && pendingEdit.physicallyPacked)) {
+        inventoryItems.current = null
+        void loadInventoryItems().catch(() => {})
+      }
+      void onDataChanged()
       if (pendingEdit.mode === 'unpack' || (pendingEdit.mode === 'container' && pendingEdit.physicallyPacked)) await onLoadContainers()
     } catch (reasonValue) {
       setActionError(reasonValue instanceof Error ? reasonValue.message : 'The packing-list edit failed.')
@@ -787,6 +994,8 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
         } else {
           setPendingAction(null)
         }
+        inventoryItems.current = null
+        void loadInventoryItems().catch(() => {})
         void onDataChanged()
         return
       }
@@ -800,6 +1009,10 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
       })
       setTripDetail(nextDetail)
       setPendingAction(null)
+      if (pendingAction.action === 'swap' && pendingAction.plan.status !== 'draft' && pendingAction.section !== 'wear_in_transit') {
+        inventoryItems.current = null
+        void loadInventoryItems().catch(() => {})
+      }
       void onDataChanged()
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : 'The packing action failed.')
@@ -818,20 +1031,41 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     <div className="trips-layout">
       <aside className="trip-sidebar">
         <div className="trip-sidebar-title"><Plane size={17} /> Trips overview</div>
-        {trips.length ? visibleTrips.map(value => (
-          <button key={value.id} className={value.id === selectedTripId ? 'trip-row active' : 'trip-row'} onClick={() => setSelectedTripId(value.id)}>
-            <span className="trip-row-icon"><CalendarDays size={17} /></span><span className="trip-row-copy"><strong>{value.name}</strong><small>{formatDate(value.startDate)} – {formatDate(value.endDate)}</small><span>{value.durationDays} days · {value.legs.length} legs · {value.status.replaceAll('_', ' ')}</span></span>{value.planCount > 0 && <span className="trip-plan-count" title={`${value.planCount} packing plan`}><ListChecks size={13} />{value.planCount}</span>}
-          </button>
-        )) : <div className="trip-empty-copy"><CalendarDays size={22} /><strong>No trips saved</strong><small>Containers remain physical inventory locations until a trip is created.</small></div>}
-        {trips.length > 0 && visibleTrips.length === 0 && query && <div className="trip-empty-copy"><Search size={22} /><strong>No trip matches</strong><small>Try a trip name, status, origin, or destination.</small></div>}
-        {trip && <TripTimeline trip={trip} />}
+        <div className="trip-sidebar-controls">
+          <div className="trip-time-filters" role="group" aria-label="Filter trips by date">
+            {(['all', 'current', 'upcoming', 'past'] as TripTimeFilter[]).map(filter => (
+              <button key={filter} type="button" className={tripFilter === filter ? 'active' : ''} aria-pressed={tripFilter === filter} onClick={() => setTripFilter(filter)}>
+                <span>{filter}</span><strong>{tripCounts[filter]}</strong>
+              </button>
+            ))}
+          </div>
+          <div className="trip-list-meta">
+            <span>Showing {visibleTrips.length} {visibleTrips.length === 1 ? 'trip' : 'trips'}</span>
+            <label><span className="sr-only">Sort trips</span><select value={tripSort} onChange={event => setTripSort(event.target.value as TripSort)}><option value="nearest">Nearest first</option><option value="chronological">Chronological</option></select></label>
+          </div>
+        </div>
+        <div className={`trip-list-scroll ${visibleTrips.length <= 2 ? 'compact' : ''}`} ref={tripListRef} aria-label="Trips">
+          {trips.length ? visibleTrips.map(value => {
+            const bucket = tripTimeBucket(value, today)
+            const badge = value.status === 'cancelled' ? 'cancelled' : bucket
+            return (
+              <button key={value.id} className={value.id === selectedTripId ? 'trip-row active' : 'trip-row'} aria-current={value.id === selectedTripId ? 'true' : undefined} onClick={() => setSelectedTripId(value.id)}>
+                <span className="trip-row-icon"><CalendarDays size={17} /></span>
+                <span className="trip-row-copy"><span className={`trip-date-badge ${badge}`}>{badge}</span><strong>{value.name}</strong><small>{formatDate(value.startDate)} – {formatDate(value.endDate)}</small><span>{value.durationDays} days · {value.legs.length} legs · {value.status.replaceAll('_', ' ')}</span></span>
+                {value.planCount > 0 && <span className="trip-plan-count" title={`${value.planCount} packing plan`}><ListChecks size={13} />{value.planCount}</span>}
+              </button>
+            )
+          }) : <div className="trip-empty-copy"><CalendarDays size={22} /><strong>No trips saved</strong><small>Containers remain physical inventory locations until a trip is created.</small></div>}
+          {trips.length > 0 && visibleTrips.length === 0 && <div className="trip-empty-copy"><Search size={22} /><strong>No trips match</strong><small>{query ? 'Try another search or date filter.' : `There are no ${tripFilter} trips.`}</small></div>}
+        </div>
+        {trip && <TripTimeline key={trip.id} trip={trip} today={today} />}
       </aside>
       <main className="main-panel trip-main">
         <div className="view-header">
           <div className="view-title">{surface === 'containers' ? <Luggage size={29} strokeWidth={1.4} /> : surface === 'unpacking' ? <Archive size={29} strokeWidth={1.4} /> : <ListChecks size={29} strokeWidth={1.4} />}<div><h1>{trip?.name || 'Travel Containers'}</h1><p>{surface === 'packing' ? 'Pack · Review recommendations and confirm physical packing.' : surface === 'unpacking' ? 'Unpack · Return physically packed items to their recorded homes.' : 'Containers · Physical luggage contents. Confirm every movement.'}</p></div></div>
           <div className="view-stats">{surface !== 'containers' ? <><div><strong>{plan?.sections.pack.length || 0}</strong><small>Proposed</small></div><div><strong>{packedCount}</strong><small>Packed</small></div><StatRing value={plan?.sections.pack.length ? Math.round(packedCount / plan.sections.pack.length * 100) : 0} label="Done" /></> : <><div><strong>{containers.length}</strong><small>Containers</small></div><div><strong>{containers.reduce((sum, value) => sum + value.itemCount, 0)}</strong><small>Items</small></div><div className="capacity-stat"><strong>—</strong><small>Capacity not set</small></div></>}</div>
         </div>
-        {surface !== 'containers' ? tripDetail ? <PackingListSurface view={surface === 'unpacking' ? 'unpack' : 'pack'} detail={tripDetail} locationNames={locationNames} query={query} busy={actionBusy} onAction={pending => void prepareAction(pending)} onAddItem={planValue => void prepareAddItem(planValue)} onChangeContainer={setPendingEdit} onUnpack={setPendingEdit} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : (
+        {surface !== 'containers' ? tripDetail ? <PackingListSurface view={surface === 'unpacking' ? 'unpack' : 'pack'} detail={tripDetail} availableContainers={availableContainers} locationNames={locationNames} query={query} busy={actionBusy} onAction={pending => void prepareAction(pending)} onAddItem={(planValue, sectionValue) => void prepareAddItem(planValue, sectionValue)} onChangeContainer={setPendingEdit} onUnpack={setPendingEdit} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : (
           <div className="container-stage">
             <div className="container-grid">
               {visibleContainers.map(container => (
@@ -858,25 +1092,111 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   )
 }
 
-function TripTimeline({ trip }: { trip: TripSummary }) {
+type TimelinePhase = {
+  id: string
+  kind: 'leg' | 'stay'
+  label: string
+  startDate: string
+  endDate: string
+  notes: string | null
+}
+
+function tripTimelinePhases(trip: TripSummary): TimelinePhase[] {
+  return trip.legs.flatMap((leg, index) => {
+    const phases: TimelinePhase[] = [{
+      id: leg.id,
+      kind: 'leg',
+      label: `${formatPlace(leg.origin)} → ${formatPlace(leg.destination)}`,
+      startDate: leg.departure,
+      endDate: leg.arrival,
+      notes: leg.transport_notes,
+    }]
+    const nextDate = trip.legs[index + 1]?.departure || trip.endDate
+    if (leg.arrival < nextDate) phases.push({
+      id: `${leg.id}:stay`,
+      kind: 'stay',
+      label: `In ${formatPlace(leg.destination)}`,
+      startDate: leg.arrival,
+      endDate: nextDate,
+      notes: null,
+    })
+    return phases
+  })
+}
+
+function isCurrentTimelinePhase(phase: TimelinePhase, today: string) {
+  return phase.kind === 'leg'
+    ? phase.startDate <= today && today <= phase.endDate
+    : phase.startDate < today && today < phase.endDate
+}
+
+function isCompletedTimelinePhase(phase: TimelinePhase, today: string) {
+  return phase.kind === 'stay' ? phase.endDate <= today : phase.endDate < today
+}
+
+function TripTimeline({ trip, today }: { trip: TripSummary; today: string }) {
+  const [collapsed, setCollapsed] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
+  const timelineScrollRef = useRef<HTMLDivElement>(null)
+  const phases = useMemo(() => tripTimelinePhases(trip), [trip])
+  const currentPhase = phases.find(phase => isCurrentTimelinePhase(phase, today))
+  const completedPhases = phases.filter(phase => phase.id !== currentPhase?.id && isCompletedTimelinePhase(phase, today))
+  const activeAndUpcomingPhases = phases.filter(phase => !completedPhases.includes(phase))
   const firstOrigin = trip.legs[0]?.origin
   const finalDestination = trip.legs[trip.legs.length - 1]?.destination
-  const routeSummary = firstOrigin === finalDestination
+  const routeSummary = !trip.legs.length
+    ? `${trip.places.length} ${trip.places.length === 1 ? 'place' : 'places'} · No travel legs`
+    : firstOrigin === finalDestination
     ? `${formatPlace(firstOrigin)} round trip · ${trip.places.length} places`
     : `${formatPlace(firstOrigin)} → ${formatPlace(finalDestination)}`
-  return (
-    <div className="trip-timeline">
-      <div className="itinerary-heading"><span>Itinerary</span><strong>{trip.legs.length} legs</strong></div>
-      <div className="trip-route-summary"><Plane size={14} /><span>{routeSummary}</span></div>
-      {trip.legs.map((leg, index) => (
-        <div key={leg.id}>
-        <div className="timeline-leg" key={leg.id}>
-          <span className="timeline-node">{index === 0 ? <Home size={14} /> : <Plane size={14} />}</span>
-          <div><strong>{formatPlace(leg.origin)} → {formatPlace(leg.destination)}</strong><small>{formatDate(leg.departure)}</small></div>
-        </div>
-        </div>
-      ))}
+
+  const jumpToCurrent = () => {
+    setCollapsed(false)
+    window.requestAnimationFrame(() => {
+      timelineScrollRef.current?.querySelector<HTMLElement>('[data-current-phase="true"]')?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    })
+  }
+
+  useEffect(() => {
+    if (collapsed || !currentPhase) return
+    const frame = window.requestAnimationFrame(() => {
+      timelineScrollRef.current?.querySelector<HTMLElement>('[data-current-phase="true"]')?.scrollIntoView({ block: 'nearest' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [trip.id, collapsed, currentPhase])
+
+  const renderPhase = (phase: TimelinePhase) => {
+    const current = phase.id === currentPhase?.id
+    const completed = completedPhases.includes(phase)
+    const firstLeg = phase.id === trip.legs[0]?.id
+    return <div className={`timeline-leg ${phase.kind} ${current ? 'current' : ''} ${completed ? 'completed' : ''}`} key={phase.id} data-current-phase={current || undefined}>
+      <span className="timeline-node">{completed ? <Check size={14} /> : phase.kind === 'stay' ? <MapPinHouse size={14} /> : firstLeg ? <Home size={14} /> : <Plane size={14} />}</span>
+      <div><span className="timeline-phase-kind">{current ? 'Current · ' : completed ? 'Completed · ' : ''}{phase.kind === 'stay' ? 'Stay' : 'Travel'}</span><strong>{phase.label}</strong><small>{phase.startDate === phase.endDate ? formatDate(phase.startDate) : `${formatDate(phase.startDate)} – ${formatDate(phase.endDate)}`}</small>{phase.notes && <p>{phase.notes}</p>}</div>
     </div>
+  }
+
+  return (
+    <section className={`trip-timeline ${collapsed ? 'collapsed' : ''}`} aria-label={`Itinerary for ${trip.name}`}>
+      <div className="itinerary-heading">
+        <button type="button" className="itinerary-collapse" onClick={() => setCollapsed(value => !value)} aria-expanded={!collapsed}><span>Itinerary</span>{collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>
+        <strong>{trip.legs.length} legs</strong>
+      </div>
+      {!collapsed && <>
+        <div className="itinerary-tools"><span>{currentPhase ? 'Current phase found' : tripTimeBucket(trip, today) === 'current' ? 'Between dated phases' : 'No active phase'}</span><button type="button" onClick={jumpToCurrent} disabled={!currentPhase}>Jump to current</button></div>
+        <div className="trip-timeline-scroll" ref={timelineScrollRef}>
+          <div className="trip-route-summary"><Plane size={14} /><span>{routeSummary}</span></div>
+          {completedPhases.length > 0 && <div className="completed-phases">
+            <button type="button" className="completed-phases-toggle" onClick={() => setShowCompleted(value => !value)} aria-expanded={showCompleted}>
+              <span className="completed-phases-check"><Check size={14} /></span>
+              <span><strong>{completedPhases.length} completed {completedPhases.length === 1 ? 'phase' : 'phases'}</strong><small>{formatDate(completedPhases[0].startDate)} – {formatDate(completedPhases.at(-1)?.endDate || completedPhases[0].endDate)}</small></span>
+              {showCompleted ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            {showCompleted && <div className="completed-phases-list">{completedPhases.map(renderPhase)}</div>}
+          </div>}
+          {activeAndUpcomingPhases.map(renderPhase)}
+        </div>
+      </>}
+    </section>
   )
 }
 
@@ -890,6 +1210,67 @@ function ContainerInspector({ container, detail }: { container: LocationSummary;
       <section><h3>Contents breakdown</h3>{detail?.categories.length ? detail.categories.map(group => <div className="breakdown-row" key={group.id}><span><Shirt size={15} /> {group.name}</span><strong>{group.count}</strong></div>) : <p className="muted">No physical items in this container.</p>}</section>
       <section><h3>Status</h3><div className={container.itemCount ? 'truth-status active' : 'truth-status'}><Check size={16} /> {container.itemCount ? 'Items physically present' : 'Empty location'}</div><small>Recommendations and accepted plans do not affect this count.</small></section>
     </aside>
+  )
+}
+
+function AddInventoryItemDialog({ options, locations, defaultLocationId, busy, error, onClose, onConfirm }: {
+  options: InventoryOptions | null
+  locations: LocationSummary[]
+  defaultLocationId: string
+  busy: boolean
+  error: string | null
+  onClose: () => void
+  onConfirm: (payload: InventoryCreatePayload) => void
+}) {
+  const defaultCurrent = locations.some(location => location.id === defaultLocationId) ? defaultLocationId : locations[0]?.id || ''
+  const defaultPreferred = locations.find(location => location.id === defaultCurrent && location.kind === 'home')?.id
+    || locations.find(location => location.kind === 'home')?.id
+    || defaultCurrent
+  const [name, setName] = useState('')
+  const [itemType, setItemType] = useState('t_shirt')
+  const [color, setColor] = useState('')
+  const [currentLocation, setCurrentLocation] = useState(defaultCurrent)
+  const [preferredLocation, setPreferredLocation] = useState(defaultPreferred)
+  const [condition, setCondition] = useState('')
+  const [uses, setUses] = useState<string[]>([])
+  const [notes, setNotes] = useState('')
+  const toggleUse = (value: string) => setUses(current => current.includes(value) ? current.filter(item => item !== value) : [...current, value])
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const attributes: Record<string, string> = {}
+    if (color.trim()) attributes.color = color.trim()
+    onConfirm({
+      name: name.trim(),
+      type: itemType,
+      current_location: currentLocation,
+      preferred_location: preferredLocation,
+      attributes,
+      uses,
+      condition: condition || undefined,
+      notes: notes.trim() || undefined,
+    })
+  }
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <motion.form className="move-dialog add-inventory-dialog" role="dialog" aria-modal="true" aria-labelledby="add-item-dialog-title" onSubmit={submit} initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
+        <div className="dialog-icon"><Plus /></div>
+        <div><small>Add physical inventory</small><h2 id="add-item-dialog-title">Add an item</h2></div>
+        <p>Record one possession where it physically is now and where it normally belongs.</p>
+        <div className="inventory-form-grid">
+          <label className="dialog-field field-wide">Item name<input autoFocus value={name} onChange={event => setName(event.target.value)} placeholder="e.g. Benfica White Jersey" /></label>
+          <label className="dialog-field">Type<select value={itemType} onChange={event => setItemType(event.target.value)} disabled={!options}><option value="">Choose a type</option>{options?.itemTypes.map(value => <option key={value} value={value}>{value.replaceAll('_', ' ')}</option>)}</select></label>
+          <label className="dialog-field">Color <span className="optional-label">optional</span><input value={color} onChange={event => setColor(event.target.value)} placeholder="e.g. white" /></label>
+          <label className="dialog-field">Current location<select value={currentLocation} onChange={event => setCurrentLocation(event.target.value)}>{locations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+          <label className="dialog-field">Preferred location<select value={preferredLocation} onChange={event => setPreferredLocation(event.target.value)}>{locations.map(location => <option key={location.id} value={location.id}>{location.name}</option>)}</select></label>
+          <label className="dialog-field">Condition <span className="optional-label">optional</span><select value={condition} onChange={event => setCondition(event.target.value)}><option value="">Not recorded</option><option value="new">New</option><option value="good">Good</option><option value="worn">Worn</option><option value="damaged">Damaged</option></select></label>
+          <label className="dialog-field field-wide">Notes <span className="optional-label">optional</span><textarea value={notes} onChange={event => setNotes(event.target.value)} placeholder="Brand, material, graphic, fit, or anything memorable" rows={2} /></label>
+        </div>
+        <fieldset className="use-picker"><legend>Uses <span>optional</span></legend><div>{options?.uses.map(value => <button key={value} type="button" className={uses.includes(value) ? 'active' : ''} onClick={() => toggleUse(value)}>{value.replaceAll('_', ' ')}</button>)}</div></fieldset>
+        <div className="inventory-confirmation"><Check size={16} /> This adds one physical item. It does not infer a movement, packing action, or trip outcome.</div>
+        {error && <div className="dialog-error">{error}</div>}
+        <div className="dialog-actions"><button type="button" onClick={onClose} disabled={busy}>Cancel</button><button type="submit" className="confirm" disabled={busy || !options || !name.trim() || !itemType || !currentLocation || !preferredLocation}>{busy ? <LoaderCircle className="spin" size={18} /> : <Plus size={18} />} Confirm add</button></div>
+      </motion.form>
+    </div>
   )
 }
 
@@ -943,15 +1324,47 @@ export default function App() {
   const [pendingItem, setPendingItem] = useState<InventoryItem | null>(null)
   const [moveBusy, setMoveBusy] = useState(false)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const [addItemOpen, setAddItemOpen] = useState(false)
+  const [inventoryOptions, setInventoryOptions] = useState<InventoryOptions | null>(null)
+  const [addItemBusy, setAddItemBusy] = useState(false)
+  const [addItemError, setAddItemError] = useState<string | null>(null)
+  const [iconPreferences, setIconPreferences] = useState<LocationIconPreferences>(() => {
+    try { return JSON.parse(localStorage.getItem('loadout:location-icons') || '{}') as LocationIconPreferences } catch { return {} }
+  })
   const locationRequest = useRef(0)
   const containerRequest = useRef(0)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }), useSensor(KeyboardSensor))
 
   useEffect(() => {
     if (!overview || selectedLocationId) return
-    const defaultHome = overview.locations.filter(location => location.kind === 'home').sort((a, b) => b.itemCount - a.itemCount)[0]
-    setSelectedLocationId(defaultHome?.id || overview.locations[0]?.id || '')
+    const homes = overview.locations.filter(location => location.kind === 'home')
+    const lastHomeId = localStorage.getItem('loadout:last-home')
+    const lastHome = homes.find(location => location.id === lastHomeId)
+    setSelectedLocationId(lastHome?.id || homes[0]?.id || overview.locations[0]?.id || '')
   }, [overview, selectedLocationId])
+
+  const selectLocation = (id: string) => {
+    setSelectedLocationId(id)
+    if (overview?.locations.find(location => location.id === id)?.kind === 'home') localStorage.setItem('loadout:last-home', id)
+  }
+
+  const goHome = () => {
+    const homes = overview?.locations.filter(location => location.kind === 'home') || []
+    const rememberedHome = homes.find(location => location.id === localStorage.getItem('loadout:last-home'))
+    const home = rememberedHome || homes[0]
+    if (home) selectLocation(home.id)
+    setMode('wardrobe')
+    setCategory(null)
+    setSearchQuery('')
+  }
+
+  const changeLocationIcon = (id: string, icon: LocationIconName) => {
+    setIconPreferences(current => {
+      const next = { ...current, [id]: icon }
+      localStorage.setItem('loadout:location-icons', JSON.stringify(next))
+      return next
+    })
+  }
 
   const loadLocation = useCallback(async (id: string) => {
     const request = ++locationRequest.current
@@ -1013,6 +1426,30 @@ export default function App() {
     }
   }
 
+  const openAddItem = () => {
+    setAddItemOpen(true)
+    setAddItemError(null)
+    if (inventoryOptions) return
+    void api.inventoryOptions().then(setInventoryOptions).catch(reason => {
+      setAddItemError(reason instanceof Error ? reason.message : 'Inventory choices could not be loaded.')
+    })
+  }
+
+  const confirmAddItem = async (payload: InventoryCreatePayload) => {
+    setAddItemBusy(true)
+    setAddItemError(null)
+    try {
+      await api.createInventoryItem(payload)
+      setAddItemOpen(false)
+      selectLocation(payload.current_location)
+      await Promise.all([refresh(), loadLocation(payload.current_location)])
+    } catch (failure) {
+      setAddItemError(failure instanceof Error ? failure.message : 'The inventory item could not be added.')
+    } finally {
+      setAddItemBusy(false)
+    }
+  }
+
   if (loading) return <div className="boot-screen"><Brand /><LoaderCircle className="spin" /><span>Opening your local wardrobe…</span></div>
   if (!overview || error) return <div className="boot-screen error"><CloudOff /><h1>LoadOut is offline</h1><p>{error || 'The local inventory could not be loaded.'}</p><button onClick={() => void refresh()}>Try again</button></div>
 
@@ -1020,13 +1457,14 @@ export default function App() {
   return (
     <DndContext sensors={sensors} onDragStart={() => setDragging(true)} onDragCancel={() => setDragging(false)} onDragEnd={event => void handleDragEnd(event)}>
       <div className="app-shell">
-        <TopBar mode={mode} query={searchQuery} onQueryChange={setSearchQuery} onModeChange={value => { setMode(value); setCategory(null); setSearchQuery('') }} />
+        <TopBar mode={mode} query={searchQuery} onQueryChange={setSearchQuery} onHome={goHome} onAddItem={openAddItem} onModeChange={value => { setMode(value); setCategory(null); setSearchQuery('') }} />
         {mode === 'wardrobe' ? (
           <div className="workspace">
-            <Sidebar overview={overview} selectedId={selectedLocationId} onSelect={setSelectedLocationId} mode={mode} dragging={dragging} />
+            <Sidebar overview={overview} selectedId={selectedLocationId} onSelect={selectLocation} dragging={dragging} iconPreferences={iconPreferences} onIconChange={changeLocationIcon} />
             {detail ? <WardrobeView detail={detail} category={category} onCategory={setCategory} query={searchQuery} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div>}
           </div>
         ) : <TripsView trips={trips} overview={overview} containerDetails={containerDetails} query={searchQuery} onDataChanged={refresh} onLoadContainers={loadContainerDetails} />}
+        {addItemOpen && <AddInventoryItemDialog options={inventoryOptions} locations={overview.locations} defaultLocationId={selectedLocationId} busy={addItemBusy} error={addItemError} onClose={() => { setAddItemOpen(false); setAddItemError(null) }} onConfirm={payload => void confirmAddItem(payload)} />}
         <MoveDialog plan={pendingPlan} item={pendingItem} locationNames={locationNames} busy={moveBusy} error={moveError} onClose={() => { setPendingPlan(null); setPendingItem(null); setMoveError(null) }} onConfirm={(reason, updatePreferred) => void confirmMove(reason, updatePreferred)} />
       </div>
     </DndContext>

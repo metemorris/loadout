@@ -10,6 +10,7 @@ from .movement import (
     StateConfirmationRequiredError,
     move_items,
     plan_movement,
+    register_inventory_item,
     register_purchased_item,
     update_item_status,
 )
@@ -224,6 +225,7 @@ __all__ = [
     "load_trip_context",
     "load_trips",
     "move_items",
+    "register_inventory_item",
     "register_purchased_item",
     "update_item_status",
     "match_trip_requirements",

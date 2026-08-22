@@ -12,7 +12,13 @@ from inventory_toolkit.execution import (
     create_trip_execution,
     load_trip_executions,
 )
-from inventory_toolkit.packing import PackingPlan, PackingPlanEntry, PackingValidationError
+from inventory_toolkit.packing import (
+    PackingPlan,
+    PackingPlanCatalog,
+    PackingPlanEntry,
+    PackingValidationError,
+)
+from inventory_toolkit.repository import CatalogSnapshot
 
 
 def execution_for_trip(
@@ -94,4 +100,25 @@ def editable_plan(plan: PackingPlan) -> PackingPlan:
         created_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         sections=plan.sections,
         notes="UI revision of {}. {}".format(plan.id, plan.notes or "").strip(),
+    )
+
+
+def snapshot_with_plan(
+    snapshot: CatalogSnapshot,
+    updated_plan: PackingPlan,
+) -> CatalogSnapshot:
+    """Return the already-loaded catalog with one saved plan added or replaced."""
+
+    plans = list(snapshot.plans.plans)
+    for index, plan in enumerate(plans):
+        if plan.id == updated_plan.id:
+            plans[index] = updated_plan
+            break
+    else:
+        plans.append(updated_plan)
+    return CatalogSnapshot(
+        inventory=snapshot.inventory,
+        trips=snapshot.trips,
+        plans=PackingPlanCatalog(plans),
+        executions=snapshot.executions,
     )

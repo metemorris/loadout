@@ -20,14 +20,18 @@ from inventory_toolkit.packing import (
     PackingPlanNotFoundError,
     PackingValidationError,
     confirm_packing_plan,
-    load_packing_plan,
     save_packing_plan,
 )
-from inventory_toolkit.trips import TripNotFoundError, load_trips
+from inventory_toolkit.trips import TripNotFoundError
 
 from ..context import ApiContext, get_context
 from ..errors import domain_conflict
-from ..packing_service import execution_for_trip, replace_draft_entry
+from ..packing_service import (
+    editable_plan,
+    execution_for_trip,
+    replace_draft_entry,
+    snapshot_with_plan,
+)
 from ..requests import PackingActionRequest, PackingBatchRequest
 from ..serializers import item_payload, plain, trip_detail_payload
 
@@ -208,8 +212,9 @@ def packing_action(
         )
     try:
         data_dir = context.durable_data_dir()
-        trip = load_trips(data_dir).get(trip_id)
-        plan = load_packing_plan(request.plan_id, data_dir)
+        snapshot = context.snapshot()
+        trip = snapshot.trips.get(trip_id)
+        plan = snapshot.plans.get(request.plan_id)
         if plan.trip != trip.id:
             raise PackingValidationError(["packing plan does not belong to this trip"])
         entries = plan.sections.get(request.section)
@@ -224,19 +229,29 @@ def packing_action(
             raise PackingValidationError(["this packing decision has no physical item"])
         decision = "{}:{}".format(request.section, request.entry_index)
 
-        if request.action == "remove" and plan.status == "draft":
+        if request.action == "remove" and (
+            plan.status == "draft" or request.section == "wear_in_transit"
+        ):
+            editable = editable_plan(plan)
             updated = replace_draft_entry(
-                plan, request.section, request.entry_index, None
+                editable, request.section, request.entry_index, None
             )
-            save_packing_plan(updated, replace_existing=True, data_dir=data_dir)
-            return trip_detail_payload(trip_id, context.snapshot())
+            saved = save_packing_plan(
+                updated,
+                replace_existing=updated.id == plan.id,
+                data_dir=data_dir,
+            )
+            return trip_detail_payload(trip_id, snapshot_with_plan(snapshot, saved))
 
         replacement_item = None
         swap_notes = None
         if request.action == "swap":
             swap_notes = request.notes.strip()
-            replacement_item = _resolve_replacement(request, entry, plan, data_dir)
-            if plan.status == "draft":
+            replacement_item = _resolve_replacement(
+                request, entry, plan, snapshot.inventory
+            )
+            if plan.status == "draft" or request.section == "wear_in_transit":
+                editable = editable_plan(plan)
                 updated_entry = replace(
                     entry,
                     item=replacement_item.id,
@@ -246,10 +261,16 @@ def packing_action(
                     ),
                 )
                 updated = replace_draft_entry(
-                    plan, request.section, request.entry_index, updated_entry
+                    editable, request.section, request.entry_index, updated_entry
                 )
-                save_packing_plan(updated, replace_existing=True, data_dir=data_dir)
-                return trip_detail_payload(trip_id, context.snapshot())
+                saved = save_packing_plan(
+                    updated,
+                    replace_existing=updated.id == plan.id,
+                    data_dir=data_dir,
+                )
+                return trip_detail_payload(
+                    trip_id, snapshot_with_plan(snapshot, saved)
+                )
 
         execution = execution_for_trip(
             trip.id, plan.id, data_dir=data_dir, create=False
@@ -282,15 +303,20 @@ def _resolve_replacement(
     request: PackingActionRequest,
     entry: Any,
     plan: Any,
-    data_dir: Any,
+    inventory: Any,
 ) -> Any:
     """Validate and return the physical replacement for a swap request."""
 
     if not request.replacement_item_id:
         raise PackingValidationError(["a replacement item is required for swap"])
-    replacement = load_inventory(data_dir).resolve_item(request.replacement_item_id)
+    original = inventory.resolve_item(entry.item)
+    replacement = inventory.resolve_item(request.replacement_item_id)
     if replacement.id == entry.item:
         raise PackingValidationError(["choose a different replacement item"])
+    if replacement.type != original.type:
+        raise PackingValidationError([
+            "replacement item must have the same type as the original item"
+        ])
     if any(
         candidate.item == replacement.id
         for section_entries in plan.sections.values()

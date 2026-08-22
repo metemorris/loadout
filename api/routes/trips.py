@@ -17,11 +17,11 @@ from inventory_toolkit.packing import (
     PackingValidationError,
     save_packing_plan,
 )
-from inventory_toolkit.trips import TripNotFoundError
+from inventory_toolkit.trips import TripNotFoundError, TripValidationError, update_trip
 
 from ..context import ApiContext, get_context
 from ..errors import domain_conflict
-from ..packing_service import editable_plan, replace_draft_entry
+from ..packing_service import editable_plan, replace_draft_entry, snapshot_with_plan
 from ..requests import (
     PackingContainerRequest,
     PackingPlanItemRequest,
@@ -130,8 +130,16 @@ def add_packing_plan_item(
         plan = snapshot.plans.get(request.plan_id)
         if plan.trip != trip.id:
             raise PackingValidationError(["packing plan does not belong to this trip"])
-        if request.container not in trip.luggage:
+        if request.section not in {"pack", "wear_in_transit"}:
+            raise PackingValidationError([
+                "items can only be added to pack or wear_in_transit"
+            ])
+        if request.section == "pack" and request.container not in trip.luggage:
             raise PackingValidationError(["container is not assigned to this trip"])
+        if request.section == "wear_in_transit" and request.container is not None:
+            raise PackingValidationError([
+                "wear_in_transit items must not specify a container"
+            ])
         item = snapshot.inventory.resolve_item(request.item_id)
         if (item.status or "") in UNAVAILABLE_ITEM_STATUSES:
             raise PackingValidationError(["item is not currently available for packing"])
@@ -144,26 +152,28 @@ def add_packing_plan_item(
 
         editable = editable_plan(plan)
         sections = {name: list(entries) for name, entries in editable.sections.items()}
-        sections["pack"].append(PackingPlanEntry(
+        sections[request.section].append(PackingPlanEntry(
             item=item.id,
             requirement="manual_addition",
             leg=trip.legs[0].id if trip.legs else None,
-            container=request.container,
+            container=request.container if request.section == "pack" else None,
             source=item.current_location,
             destination=None,
             quantity=1,
-            reason=(request.reason or "Added manually from the trip packing surface.").strip(),
+            reason=(request.reason or "Added manually to {} from the trip packing surface.".format(
+                request.section.replace("_", " ")
+            )).strip(),
         ))
         updated = replace(
             editable,
             sections={name: tuple(entries) for name, entries in sections.items()},
         )
-        save_packing_plan(
+        saved = save_packing_plan(
             updated,
             replace_existing=updated.id == plan.id,
             data_dir=context.durable_data_dir(),
         )
-        return trip_detail_payload(trip.id, context.snapshot())
+        return trip_detail_payload(trip.id, snapshot_with_plan(snapshot, saved))
     except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PackingValidationError as exc:
@@ -186,8 +196,10 @@ def change_packing_plan_container(
         plan = snapshot.plans.get(request.plan_id)
         if plan.trip != trip.id:
             raise PackingValidationError(["packing plan does not belong to this trip"])
-        if request.container not in trip.luggage:
-            raise PackingValidationError(["container is not assigned to this trip"])
+        destination = snapshot.inventory.resolve_location(request.container)
+        if destination.kind != "travel_container":
+            raise PackingValidationError(["destination must be a travel container"])
+        container_id = destination.id
         editable = editable_plan(plan)
         entries = editable.sections.get(request.section)
         if entries is None or request.entry_index > len(entries):
@@ -199,14 +211,14 @@ def change_packing_plan_container(
         entry = entries[request.entry_index - 1]
         if entry.item is None:
             raise PackingValidationError(["this packing decision has no physical item"])
-        if entry.container == request.container:
+        if entry.container == container_id:
             raise PackingValidationError(["choose a different container"])
 
         updated = replace_draft_entry(
             editable,
             request.section,
             request.entry_index,
-            replace(entry, container=request.container),
+            replace(entry, container=container_id),
         )
         item = snapshot.inventory.resolve_item(entry.item)
         execution = next(
@@ -223,20 +235,26 @@ def change_packing_plan_container(
             for action in execution.actions
         )
         data_dir = context.durable_data_dir()
-        if was_packed and item.current_location != request.container:
+        if was_packed and item.current_location != container_id:
             plan_movement(
                 [item.id],
                 item.current_location,
-                request.container,
+                container_id,
                 data_dir=data_dir,
                 reason="Trip packing container change preview.",
+            )
+        if container_id not in trip.luggage:
+            update_trip(
+                trip.id,
+                luggage=(*trip.luggage, container_id),
+                data_dir=data_dir,
             )
         save_packing_plan(
             updated,
             replace_existing=updated.id == plan.id,
             data_dir=data_dir,
         )
-        if was_packed and item.current_location != request.container:
+        if was_packed and item.current_location != container_id:
             record_execution_action(
                 execution.id,
                 "ui-container-transfer-{}".format(uuid.uuid4().hex),
@@ -244,7 +262,7 @@ def change_packing_plan_container(
                 item=item.id,
                 description="Changed packing container",
                 source=item.current_location,
-                destination=request.container,
+                destination=container_id,
                 reason="Changed the assigned bag from the trip packing surface.",
                 confirmed=True,
                 data_dir=data_dir,
@@ -252,7 +270,7 @@ def change_packing_plan_container(
         return trip_detail_payload(trip.id, context.snapshot())
     except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except (PackingValidationError, ExecutionValidationError, MovementError) as exc:
+    except (PackingValidationError, ExecutionValidationError, MovementError, TripValidationError) as exc:
         raise domain_conflict(exc) from exc
 
 
