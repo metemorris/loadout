@@ -7,8 +7,10 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 
 from inventory_toolkit.execution import (
+    ExecutionMovementRequest,
     ExecutionValidationError,
     record_execution_action,
+    record_execution_movement_batch,
 )
 from inventory_toolkit.movement import MovementError, plan_movement
 from inventory_toolkit.packing import (
@@ -26,6 +28,7 @@ from ..requests import (
     PackingContainerRequest,
     PackingPlanItemRequest,
     PackingUnpackRequest,
+    TripTransferRequest,
 )
 from ..serializers import item_payload, trip_detail_payload, trip_payload
 
@@ -341,4 +344,94 @@ def unpack_packing_item(
     except (PackingPlanNotFoundError, TripNotFoundError, LookupError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (PackingValidationError, ExecutionValidationError, MovementError) as exc:
+        raise domain_conflict(exc) from exc
+
+
+@router.post("/{trip_id}/luggage-transfer")
+def transfer_luggage_items(
+    trip_id: str,
+    request: TripTransferRequest,
+    context: ApiContext = Depends(get_context),
+) -> Dict[str, Any]:
+    """Record confirmed interim transfers from trip luggage into a home location."""
+
+    if not request.confirmed:
+        raise HTTPException(status_code=428, detail="Explicit confirmation is required")
+    try:
+        snapshot = context.snapshot()
+        trip = snapshot.trips.get(trip_id)
+        execution = next(
+            (
+                value for value in snapshot.executions.executions
+                if value.trip == trip.id and value.status in ACTIVE_EXECUTION_STATUSES
+            ),
+            None,
+        )
+        if execution is None:
+            raise ExecutionValidationError(["trip has no active execution"])
+
+        destination = snapshot.inventory.resolve_location(request.destination)
+        if destination.kind != "home":
+            raise ExecutionValidationError([
+                "interim luggage transfers require a home destination"
+            ])
+
+        item_ids = [selection.item_id for selection in request.items]
+        if len(set(item_ids)) != len(item_ids):
+            raise ExecutionValidationError(["physical item IDs must not be repeated"])
+
+        validated = []
+        for selection in request.items:
+            item = snapshot.inventory.resolve_item(selection.item_id)
+            source = snapshot.inventory.resolve_location(selection.source)
+            if source.id not in trip.luggage:
+                raise ExecutionValidationError([
+                    "{} source {!r} is not luggage assigned to this trip".format(
+                        item.id, source.id
+                    )
+                ])
+            if item.current_location != source.id:
+                raise ExecutionValidationError([
+                    "{} expected at {!r} but is at {!r}".format(
+                        item.id, source.id, item.current_location
+                    )
+                ])
+            validated.append((item, source.id))
+
+        data_dir = context.durable_data_dir()
+        reason = request.reason.strip()
+        result = record_execution_movement_batch(
+            execution.id,
+            "ui-luggage-transfer-{}".format(uuid.uuid4().hex),
+            [
+                ExecutionMovementRequest(
+                    item=item.id,
+                    source=source_id,
+                    destination=destination.id,
+                    description="Unpacked at an interim trip location",
+                )
+                for item, source_id in validated
+            ],
+            kind="transferred",
+            reason=reason,
+            confirmed=True,
+            data_dir=data_dir,
+            execution_snapshot=execution,
+            inventory_snapshot=snapshot.inventory,
+        )
+        if result.failed_action_ids:
+            failed = {
+                action.id: action
+                for action in result.execution.actions
+                if action.id in result.failed_action_ids
+            }
+            details = [
+                failed[action_id].states[-1].notes or action_id
+                for action_id in result.failed_action_ids
+            ]
+            raise MovementError("; ".join(details))
+        return trip_detail_payload(trip.id, context.snapshot())
+    except (TripNotFoundError, LookupError) as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ExecutionValidationError, MovementError) as exc:
         raise domain_conflict(exc) from exc

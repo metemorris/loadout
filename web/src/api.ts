@@ -69,6 +69,14 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({ ...payload, confirmed: true }),
   }),
+  transferLuggage: (tripId: string, payload: {
+    items: Array<{ item_id: string; source: string }>
+    destination: string
+    reason: string
+  }) => request<TripDetailResponse>(`/api/trips/${encodeURIComponent(tripId)}/luggage-transfer`, {
+    method: 'POST',
+    body: JSON.stringify({ ...payload, confirmed: true }),
+  }),
   previewMove: (payload: {
     item_ids: string[]
     source: string

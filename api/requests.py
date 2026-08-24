@@ -85,3 +85,19 @@ class PackingUnpackRequest(BaseModel):
     section: str
     entry_index: int = Field(ge=1)
     confirmed: bool = False
+
+
+class TripTransferItemRequest(BaseModel):
+    """Identify one physical luggage item and its expected current source."""
+
+    item_id: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+
+
+class TripTransferRequest(BaseModel):
+    """Move selected trip-luggage contents into a temporary home location."""
+
+    items: List[TripTransferItemRequest] = Field(min_length=1)
+    destination: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    confirmed: bool = False

@@ -490,6 +490,8 @@ type PendingPackingEdit =
   | { mode: 'container'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; assignedContainerIds: string[]; physicallyPacked: boolean }
   | { mode: 'unpack'; plan: PackingPlan; section: PackingSection; entryIndex: number; entry: PackingPlanEntry; item: InventoryItem; containers: LocationSummary[]; returnTo: string }
 
+type PendingTripTransfer = { items: InventoryItem[] }
+
 const ACTIVE_EXECUTION_STATUSES = new Set(['preparing', 'in_progress', 'reconciling'])
 
 function activeTripExecution(detail: TripDetailResponse) {
@@ -627,7 +629,7 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
                 <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Change item</button>
                 <button className="remove-item" disabled={busy} onClick={() => onAction({ action: 'remove', section, entryIndex: index + 1, entry, item, plan, candidates: [] })} aria-label={`Remove ${item.name}`}><Trash2 size={15} /></button>
               </div>}
-              {section === 'pack' && item && status === 'packed' && <div className="packing-item-actions"><button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: availableContainers, assignedContainerIds: detail.containers.map(container => container.id), physicallyPacked: true })}><Luggage size={15} /> Change bag</button><button className="unpack-item" disabled={busy} onClick={() => { const packedAction = execution?.actions.find(action => action.item === item.id && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && action.source && !luggageIds.has(action.source)); if (packedAction?.source) onUnpack({ mode: 'unpack', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, returnTo: packedAction.source }) }}><Archive size={15} /> Unpack</button></div>}
+              {section === 'pack' && item && status === 'packed' && <div className="packing-item-actions"><button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: availableContainers, assignedContainerIds: detail.containers.map(container => container.id), physicallyPacked: true })}><Luggage size={15} /> Change bag</button><button className="unpack-item" disabled={busy} onClick={() => { const packedAction = execution?.actions.find(action => action.item === item.id && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && action.source && !luggageIds.has(action.source)); if (packedAction?.source) onUnpack({ mode: 'unpack', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, returnTo: packedAction.source }) }}><Archive size={15} /> Undo pack</button></div>}
               {status !== 'proposed' && <span className={`outcome-mark ${status}`}>{status === 'packed' ? <Check size={18} /> : status === 'swapped' ? <ArrowLeftRight size={18} /> : <X size={18} />}</span>}
             </article>
           )
@@ -635,6 +637,98 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
         {!visibleEntries.length && <div className="packing-list-empty"><Search size={24} /><span>{query || categoryFilter !== 'all' ? 'No decisions match these filters.' : 'No decisions in this section.'}</span></div>}
       </div>
     </section>
+  )
+}
+
+function TripTransferSurface({ detail, locationNames, query, busy, onTransfer }: {
+  detail: TripDetailResponse
+  locationNames: Record<string, string>
+  query: string
+  busy: boolean
+  onTransfer: (items: InventoryItem[]) => void
+}) {
+  const luggageIds = new Set(detail.containers.map(container => container.id))
+  const physicalItems = detail.items
+    .filter(item => luggageIds.has(item.currentLocation))
+    .sort((left, right) => left.currentLocation.localeCompare(right.currentLocation) || left.name.localeCompare(right.name))
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const needle = query.toLowerCase().trim()
+  const visibleItems = physicalItems.filter(item => !needle || `${item.name} ${item.type} ${item.color || ''} ${item.currentLocation}`.toLowerCase().includes(needle))
+  const allVisibleSelected = visibleItems.length > 0 && visibleItems.every(item => selectedIds.has(item.id))
+  const selectedItems = physicalItems.filter(item => selectedIds.has(item.id))
+  useEffect(() => {
+    const available = new Set(physicalItems.map(item => item.id))
+    setSelectedIds(current => new Set([...current].filter(itemId => available.has(itemId))))
+  }, [detail.items])
+
+  const toggleVisible = () => {
+    setSelectedIds(current => {
+      const next = new Set(current)
+      visibleItems.forEach(item => {
+        if (allVisibleSelected) next.delete(item.id)
+        else next.add(item.id)
+      })
+      return next
+    })
+  }
+
+  return (
+    <section className="packing-surface transfer-surface">
+      <div className="packing-summary">
+        <div><span className="plan-status">Physical contents</span><h2>Unload at your current stay</h2><p>Choose the exact items that left your bags, then select the home where they are physically stored. This records an interim transfer and keeps preferred homes unchanged.</p></div>
+        <div className="packing-progress"><strong>{physicalItems.length}</strong><small>items in trip luggage</small><div><span style={{ width: physicalItems.length ? `${selectedItems.length / physicalItems.length * 100}%` : '0%' }} /></div></div>
+      </div>
+      <div className="packing-list">
+        <div className="packing-list-head"><span>Luggage contents</span><div className="packing-batch-controls"><label><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} disabled={!visibleItems.length} /> Select visible</label><span>{selectedItems.length} selected</span><button disabled={!selectedItems.length || busy} onClick={() => onTransfer(selectedItems)}><Archive size={13} /> Choose destination</button></div></div>
+        {visibleItems.map((item, index) => (
+          <article className="packing-item" key={item.id}>
+            <label className="packing-item-select"><input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => setSelectedIds(current => { const next = new Set(current); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); return next })} aria-label={`Select ${item.name}`} /></label>
+            <span className="packing-item-icon"><GarmentGlyph item={item} index={index} size={27} /></span>
+            <div className="packing-item-copy"><div><strong>{item.name}</strong><span className="packing-state">in luggage</span></div><small>{locationNames[item.currentLocation] || item.currentLocation}</small><p>Preferred home stays {locationNames[item.preferredLocation] || item.preferredLocation}.</p></div>
+          </article>
+        ))}
+        {!visibleItems.length && <div className="packing-list-empty"><Archive size={24} /><span>{query ? 'No luggage contents match this search.' : 'All trip luggage is currently empty.'}</span></div>}
+      </div>
+    </section>
+  )
+}
+
+function TripTransferDialog({ pending, homes, locationNames, busy, error, onClose, onConfirm }: {
+  pending: PendingTripTransfer | null
+  homes: LocationSummary[]
+  locationNames: Record<string, string>
+  busy: boolean
+  error: string | null
+  onClose: () => void
+  onConfirm: (destination: string, reason: string) => void
+}) {
+  const [destination, setDestination] = useState('')
+  const [reason, setReason] = useState('')
+  const defaultHomeId = homes[0]?.id || ''
+  useEffect(() => {
+    const defaultHome = homes.find(home => home.id === defaultHomeId)
+    setDestination(defaultHome?.id || '')
+    setReason(defaultHome ? `Unpacked into ${defaultHome.name} during the ongoing trip.` : '')
+  }, [pending, defaultHomeId])
+  if (!pending) return null
+  const sourceCounts = pending.items.reduce<Record<string, number>>((counts, item) => ({ ...counts, [item.currentLocation]: (counts[item.currentLocation] || 0) + 1 }), {})
+  const changeDestination = (next: string) => {
+    setDestination(next)
+    const home = homes.find(value => value.id === next)
+    setReason(home ? `Unpacked into ${home.name} during the ongoing trip.` : '')
+  }
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <motion.div className="move-dialog packing-dialog transfer-dialog" role="dialog" aria-modal="true" aria-labelledby="trip-transfer-title" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
+        <div className="dialog-icon"><Archive /></div>
+        <div><small>Confirm interim trip transfer</small><h2 id="trip-transfer-title">Unload {pending.items.length} item{pending.items.length === 1 ? '' : 's'}?</h2></div>
+        <div className="movement-route"><span>{Object.entries(sourceCounts).map(([source, count]) => `${locationNames[source] || source} · ${count}`).join(' + ')}</span><ArrowLeftRight size={18} /><span>{locationNames[destination] || destination || 'Choose a home'}</span></div>
+        <div className="swap-fields"><label className="dialog-field">Current physical home<select value={destination} onChange={event => changeDestination(event.target.value)}><option value="">Choose a home</option>{homes.map(home => <option key={home.id} value={home.id}>{home.name}{home.city ? ` · ${home.city}` : ''}</option>)}</select></label><label className="dialog-field">Reason<textarea value={reason} onChange={event => setReason(event.target.value)} rows={2} /><small>Saved on every selected item’s trip execution action.</small></label></div>
+        <p>Confirmation moves each exact item from its displayed bag to the selected home and records a <strong>transferred</strong> outcome. Preferred homes and the packing recommendation do not change.</p>
+        {error && <div className="dialog-error">{error}</div>}
+        <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" onClick={() => onConfirm(destination, reason.trim())} disabled={busy || !destination || !reason.trim()}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm transfer</button></div>
+      </motion.div>
+    </div>
   )
 }
 
@@ -796,6 +890,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   const [tripDetail, setTripDetail] = useState<TripDetailResponse | null>(null)
   const [pendingAction, setPendingAction] = useState<PendingPackingAction | null>(null)
   const [pendingEdit, setPendingEdit] = useState<PendingPackingEdit | null>(null)
+  const [pendingTransfer, setPendingTransfer] = useState<PendingTripTransfer | null>(null)
   const [actionBusy, setActionBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const inventoryItems = useRef<InventoryItem[] | null>(null)
@@ -814,6 +909,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     .sort((left, right) => compareTrips(left, right, today, tripSort))
   const availableContainers = overview.locations.filter(location => location.kind === 'travel_container')
   const containers = availableContainers.filter(location => !trip || trip.luggage.includes(location.id))
+  const homes = overview.locations.filter(location => location.kind === 'home')
   const visibleContainers = containers.filter(location => {
     if (!needle) return true
     const contents = containerDetails[location.id]?.categories.flatMap(group => group.items).map(item => `${item.name} ${item.type} ${item.color || ''}`).join(' ') || ''
@@ -961,6 +1057,26 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
     }
   }
 
+  const confirmTransfer = async (destination: string, reason: string) => {
+    if (!pendingTransfer || !trip) return
+    setActionBusy(true)
+    setActionError(null)
+    try {
+      const nextDetail = await api.transferLuggage(trip.id, {
+        items: pendingTransfer.items.map(item => ({ item_id: item.id, source: item.currentLocation })),
+        destination,
+        reason,
+      })
+      setTripDetail(nextDetail)
+      setPendingTransfer(null)
+      await Promise.all([onDataChanged(), onLoadContainers()])
+    } catch (reasonValue) {
+      setActionError(reasonValue instanceof Error ? reasonValue.message : 'The luggage transfer failed.')
+    } finally {
+      setActionBusy(false)
+    }
+  }
+
   const confirmAction = async (replacementItemId?: string, notes?: string) => {
     if (!pendingAction || !trip) return
     setActionBusy(true)
@@ -1025,6 +1141,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
   const execution = tripDetail ? activeTripExecution(tripDetail) || (plan ? tripDetail.executions.find(value => value.packing_plan === plan.id) : null) : null
   const tripLuggage = new Set(tripDetail?.containers.map(container => container.id) || [])
   const detailItems = new Map(tripDetail?.items.map(item => [item.id, item]) || [])
+  const luggageItemCount = [...detailItems.values()].filter(item => tripLuggage.has(item.currentLocation)).length
   const packedItems = new Set(execution?.actions.filter(action => action.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && tripLuggage.has(detailItems.get(action.item)?.currentLocation || '')).map(action => action.item) || [])
   const packedCount = plan?.sections.pack.filter(entry => entry.item && packedItems.has(entry.item)).length || 0
   return (
@@ -1062,10 +1179,10 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
       </aside>
       <main className="main-panel trip-main">
         <div className="view-header">
-          <div className="view-title">{surface === 'containers' ? <Luggage size={29} strokeWidth={1.4} /> : surface === 'unpacking' ? <Archive size={29} strokeWidth={1.4} /> : <ListChecks size={29} strokeWidth={1.4} />}<div><h1>{trip?.name || 'Travel Containers'}</h1><p>{surface === 'packing' ? 'Pack · Review recommendations and confirm physical packing.' : surface === 'unpacking' ? 'Unpack · Return physically packed items to their recorded homes.' : 'Containers · Physical luggage contents. Confirm every movement.'}</p></div></div>
-          <div className="view-stats">{surface !== 'containers' ? <><div><strong>{plan?.sections.pack.length || 0}</strong><small>Proposed</small></div><div><strong>{packedCount}</strong><small>Packed</small></div><StatRing value={plan?.sections.pack.length ? Math.round(packedCount / plan.sections.pack.length * 100) : 0} label="Done" /></> : <><div><strong>{containers.length}</strong><small>Containers</small></div><div><strong>{containers.reduce((sum, value) => sum + value.itemCount, 0)}</strong><small>Items</small></div><div className="capacity-stat"><strong>—</strong><small>Capacity not set</small></div></>}</div>
+          <div className="view-title">{surface === 'containers' ? <Luggage size={29} strokeWidth={1.4} /> : surface === 'unpacking' ? <Archive size={29} strokeWidth={1.4} /> : <ListChecks size={29} strokeWidth={1.4} />}<div><h1>{trip?.name || 'Travel Containers'}</h1><p>{surface === 'packing' ? 'Pack · Review recommendations and confirm physical packing.' : surface === 'unpacking' ? 'Unload · Transfer physical luggage contents into your current stay.' : 'Containers · Physical luggage contents. Confirm every movement.'}</p></div></div>
+          <div className="view-stats">{surface === 'packing' ? <><div><strong>{plan?.sections.pack.length || 0}</strong><small>Proposed</small></div><div><strong>{packedCount}</strong><small>Packed</small></div><StatRing value={plan?.sections.pack.length ? Math.round(packedCount / plan.sections.pack.length * 100) : 0} label="Done" /></> : surface === 'unpacking' ? <><div><strong>{containers.filter(value => value.itemCount > 0).length}</strong><small>Loaded bags</small></div><div><strong>{luggageItemCount}</strong><small>Items to unload</small></div></> : <><div><strong>{containers.length}</strong><small>Containers</small></div><div><strong>{containers.reduce((sum, value) => sum + value.itemCount, 0)}</strong><small>Items</small></div><div className="capacity-stat"><strong>—</strong><small>Capacity not set</small></div></>}</div>
         </div>
-        {surface !== 'containers' ? tripDetail ? <PackingListSurface view={surface === 'unpacking' ? 'unpack' : 'pack'} detail={tripDetail} availableContainers={availableContainers} locationNames={locationNames} query={query} busy={actionBusy} onAction={pending => void prepareAction(pending)} onAddItem={(planValue, sectionValue) => void prepareAddItem(planValue, sectionValue)} onChangeContainer={setPendingEdit} onUnpack={setPendingEdit} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : (
+        {surface === 'packing' ? tripDetail ? <PackingListSurface detail={tripDetail} availableContainers={availableContainers} locationNames={locationNames} query={query} busy={actionBusy} onAction={pending => void prepareAction(pending)} onAddItem={(planValue, sectionValue) => void prepareAddItem(planValue, sectionValue)} onChangeContainer={setPendingEdit} onUnpack={setPendingEdit} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : surface === 'unpacking' ? tripDetail ? <TripTransferSurface detail={tripDetail} locationNames={locationNames} query={query} busy={actionBusy} onTransfer={items => { setActionError(null); setPendingTransfer({ items }) }} /> : <div className="panel-loading"><LoaderCircle className="spin" /></div> : (
           <div className="container-stage">
             <div className="container-grid">
               {visibleContainers.map(container => (
@@ -1082,12 +1199,13 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
         )}
         <div className="trip-actions">
           <button className={surface === 'packing' ? 'active' : ''} onClick={() => setSurface('packing')}><PackageCheck /><span><strong>Pack list</strong><small>Review items one by one</small></span></button>
-          <button className={surface === 'unpacking' ? 'active' : ''} onClick={() => setSurface('unpacking')}><Archive /><span><strong>Unpack</strong><small>Return packed items home</small></span></button>
+          <button className={surface === 'unpacking' ? 'active' : ''} onClick={() => setSurface('unpacking')}><Archive /><span><strong>Unload bags</strong><small>Transfer into current stay</small></span></button>
           <button className={surface === 'containers' ? 'active' : ''} onClick={() => { setSurface('containers'); void onLoadContainers() }}><Archive /><span><strong>View contents</strong><small>Inspect packed items</small></span></button>
         </div>
       </main>
       <PackingActionDialog pending={pendingAction} busy={actionBusy} error={actionError} onClose={() => { setPendingAction(null); setActionError(null) }} onConfirm={(replacementId, notes) => void confirmAction(replacementId, notes)} />
       <PackingEditDialog pending={pendingEdit} busy={actionBusy} error={actionError} onClose={() => { setPendingEdit(null); setActionError(null) }} onConfirm={(itemId, container, reason) => void confirmEdit(itemId, container, reason)} />
+      <TripTransferDialog pending={pendingTransfer} homes={homes} locationNames={locationNames} busy={actionBusy} error={actionError} onClose={() => { setPendingTransfer(null); setActionError(null) }} onConfirm={(destination, reason) => void confirmTransfer(destination, reason)} />
     </div>
   )
 }
