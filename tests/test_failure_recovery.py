@@ -4,6 +4,7 @@ import pytest
 import inventory_toolkit.execution as execution_module
 from inventory_toolkit import (
     RECONCILIATION_TOPICS,
+    ExecutionMovementRequest,
     ExecutionValidationError,
     PackingValidationError,
     begin_trip_execution,
@@ -14,6 +15,7 @@ from inventory_toolkit import (
     load_packing_plans,
     load_trip,
     load_trip_execution,
+    record_execution_movement_batch,
     recover_pending_execution_actions,
     review_reconciliation,
     set_trip_status,
@@ -82,6 +84,58 @@ def test_interrupted_batch_is_visible_and_recoverable(example_data, monkeypatch)
         "sample-trip-execution", confirmed=True, data_dir=example_data
     )
     assert next(value for value in recovered.actions if value.id == "interrupted-1").state == "applied"
+
+
+def test_interrupted_movement_batch_is_visible_and_recoverable(
+    example_data, monkeypatch
+):
+    original_mutate = execution_module._mutate_executions
+    call_count = 0
+
+    def interrupt_final_ledger_write(data_dir, mutator):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 2:
+            raise RuntimeError("simulated process interruption")
+        return original_mutate(data_dir, mutator)
+
+    movements = [
+        ExecutionMovementRequest(item_id, "suitcase", "home")
+        for item_id in ("home-white-t-shirt", "suitcase-travel-towel")
+    ]
+    monkeypatch.setattr(execution_module, "_mutate_executions", interrupt_final_ledger_write)
+    with pytest.raises(RuntimeError, match="simulated process interruption"):
+        record_execution_movement_batch(
+            "sample-trip-execution",
+            "interrupted-transfer",
+            movements,
+            kind="transferred",
+            reason="Unpacked at the current destination.",
+            confirmed=True,
+            data_dir=example_data,
+        )
+
+    pending = load_trip_execution("sample-trip-execution", example_data)
+    pending_actions = [
+        action for action in pending.actions
+        if action.id.startswith("interrupted-transfer-")
+    ]
+    assert len(pending_actions) == 2
+    assert all(action.state == "confirmed" for action in pending_actions)
+    assert all(
+        load_inventory(example_data).resolve_item(movement.item).current_location == "home"
+        for movement in movements
+    )
+
+    monkeypatch.setattr(execution_module, "_mutate_executions", original_mutate)
+    recovered = recover_pending_execution_actions(
+        "sample-trip-execution", confirmed=True, data_dir=example_data
+    )
+    recovered_actions = [
+        action for action in recovered.actions
+        if action.id.startswith("interrupted-transfer-")
+    ]
+    assert all(action.state == "applied" for action in recovered_actions)
 
 
 def test_begin_repairs_partial_trip_transition(example_data):

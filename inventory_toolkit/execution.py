@@ -98,6 +98,22 @@ class BatchPackingResult:
 
 
 @dataclass(frozen=True)
+class ExecutionMovementRequest:
+    item: str
+    source: str
+    destination: str
+    description: Optional[str] = None
+    leg: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class BatchExecutionResult:
+    execution: "TripExecution"
+    applied_action_ids: Tuple[str, ...]
+    failed_action_ids: Tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TripReconciliation:
     what_came_back: bool = False
     stayed_at_destination: bool = False
@@ -729,6 +745,143 @@ def record_execution_action(
     except Exception as exc:
         _finish_action(execution.id, action.id, "failed", action_time, str(exc), data_dir)
         raise
+
+
+def record_execution_movement_batch(
+    execution_id: str,
+    action_id_prefix: str,
+    movements: Sequence[ExecutionMovementRequest],
+    *,
+    kind: str,
+    reason: str,
+    confirmed: bool = False,
+    timestamp: Optional[str] = None,
+    data_dir: Optional[Path] = None,
+    execution_snapshot: Optional[TripExecution] = None,
+    inventory_snapshot: Optional[Any] = None,
+) -> BatchExecutionResult:
+    """Record movement actions and apply grouped physical writes as one batch."""
+
+    if not confirmed:
+        raise ExecutionConfirmationRequiredError([
+            "confirmation required to record execution movement batch"
+        ])
+    if not movements:
+        raise ExecutionValidationError(["at least one execution movement is required"])
+    if kind not in MOVEMENT_KINDS:
+        raise ExecutionValidationError([
+            "execution movement batch requires a movement action kind"
+        ])
+    if not isinstance(reason, str) or not reason.strip():
+        raise ExecutionValidationError(["batch movement reason must be a non-empty string"])
+
+    execution = execution_snapshot or load_trip_execution(execution_id, data_dir)
+    if execution.status not in ("preparing", "in_progress", "reconciling"):
+        raise ExecutionValidationError(["execution status does not accept actions"])
+    inventory = inventory_snapshot or load_inventory(data_dir)
+    seen_items = set()
+    resolved = []
+    movement_groups: Dict[Tuple[str, str], List[Any]] = {}
+    for movement in movements:
+        if movement.item in seen_items:
+            raise ExecutionValidationError(["physical item IDs must not be repeated"])
+        seen_items.add(movement.item)
+        item = inventory.resolve_item(movement.item)
+        source = inventory.resolve_location(movement.source).id
+        destination = inventory.resolve_location(movement.destination).id
+        if source == destination:
+            raise ExecutionValidationError(["source and destination must differ"])
+        if item.current_location != source:
+            raise ExecutionValidationError([
+                "{} expected at {!r} but is at {!r}".format(
+                    item.id, source, item.current_location
+                )
+            ])
+        resolved.append((movement, item, source, destination))
+        movement_groups.setdefault((source, destination), []).append(item)
+
+    action_time = _timestamp(timestamp)
+    normalized_reason = reason.strip()
+    actions = [
+        ExecutionAction(
+            "{}-{}".format(action_id_prefix, index),
+            action_time,
+            kind,
+            item.id,
+            movement.description,
+            None,
+            movement.leg,
+            source,
+            destination,
+            normalized_reason,
+            (ActionState(action_time, "confirmed", None),),
+        )
+        for index, (movement, item, source, destination) in enumerate(resolved, 1)
+    ]
+
+    def add_batch(
+        raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog
+    ) -> None:
+        current = catalog.get(execution_id)
+        if current.status not in ("preparing", "in_progress", "reconciling"):
+            raise ExecutionValidationError(["execution status does not accept actions"])
+        existing_ids = {existing.id for existing in current.actions}
+        if any(action.id in existing_ids for action in actions):
+            raise ExecutionValidationError(["batch action ID already exists"])
+        raw = next(value for value in raw_executions if value["id"] == execution_id)
+        raw["actions"].extend(_action_to_raw(action) for action in actions)
+
+    # Persist confirmed intent first. Recovery can then reconcile a process
+    # interruption without allowing an unlogged physical move.
+    _mutate_executions(data_dir, add_batch)
+
+    action_by_item = {action.item: action for action in actions}
+    outcomes: Dict[str, Tuple[str, Optional[str]]] = {}
+    for (source, destination), items in movement_groups.items():
+        group_action_ids = [action_by_item[item.id].id for item in items]
+        try:
+            move_items(
+                [item.id for item in items],
+                source,
+                destination,
+                confirmed=True,
+                data_dir=data_dir,
+                reason="Trip {} batch {}: {}".format(
+                    execution.trip, action_id_prefix, normalized_reason
+                ),
+                timestamp=action_time,
+            )
+            outcomes.update(
+                (action_id, ("applied", None)) for action_id in group_action_ids
+            )
+        except Exception as exc:
+            outcomes.update(
+                (action_id, ("failed", str(exc))) for action_id in group_action_ids
+            )
+
+    def finish_batch(
+        raw_executions: List[Dict[str, Any]], catalog: TripExecutionCatalog
+    ) -> None:
+        current = catalog.get(execution_id)
+        current_by_id = {action.id: action for action in current.actions}
+        raw = next(value for value in raw_executions if value["id"] == execution_id)
+        raw_by_id = {action["id"]: action for action in raw["actions"]}
+        for action_id, (status, notes) in outcomes.items():
+            current_action = current_by_id.get(action_id)
+            if current_action is None or current_action.state != "confirmed":
+                raise ExecutionValidationError(
+                    ["batch action {!r} is not pending".format(action_id)]
+                )
+            raw_by_id[action_id]["states"].append(
+                {"timestamp": action_time, "status": status, "notes": notes}
+            )
+
+    updated = _mutate_executions(data_dir, finish_batch).get(execution_id)
+    return BatchExecutionResult(
+        updated,
+        tuple(action.id for action in actions if outcomes[action.id][0] == "applied"),
+        tuple(action.id for action in actions if outcomes[action.id][0] == "failed"),
+    )
 
 
 def confirm_packing_decision(

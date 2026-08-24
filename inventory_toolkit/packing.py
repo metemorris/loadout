@@ -751,13 +751,6 @@ def _parse_plan_store(
                     if destination is None:
                         errors.append("{} requires destination".format(entry_label))
                         entry_valid = False
-                    elif item_object is not None and item_object.current_location != destination:
-                        errors.append(
-                            "{} item is currently at {!r}, not {!r}".format(
-                                entry_label, item_object.current_location, destination
-                            )
-                        )
-                        entry_valid = False
                 quantity = raw_entry.get("quantity")
                 if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
                     errors.append("{}.quantity must be a positive integer".format(entry_label))

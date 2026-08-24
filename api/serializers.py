@@ -146,6 +146,10 @@ def trip_detail_payload(trip_id: str, snapshot: CatalogSnapshot) -> Dict[str, An
         for execution in executions
         for action in execution.actions
         if action.item is not None
+    } | {
+        item.id
+        for container_id in trip.luggage
+        for item in inventory.container_contents(container_id)
     }
     return {
         "trip": trip_payload(trip),
