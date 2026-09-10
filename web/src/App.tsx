@@ -511,6 +511,9 @@ function visiblePackingPlan(detail: TripDetailResponse): PackingPlan | undefined
   return detail.plans.at(-1)
 }
 
+type PackingRowStatus = 'proposed' | 'unpacked' | 'swapped' | 'packed' | 'removed'
+const PACKING_ROW_ORDER: Record<PackingRowStatus, number> = { proposed: 0, unpacked: 1, swapped: 2, packed: 3, removed: 4 }
+
 function PackingListSurface({ detail, availableContainers, locationNames, query, busy, view = 'pack', onAction, onAddItem, onChangeContainer, onUnpack }: {
   detail: TripDetailResponse
   availableContainers: LocationSummary[]
@@ -550,13 +553,24 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
   const appliedPackedItems = new Set(execution?.actions.filter(action => action.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && luggageIds.has(itemMap.get(action.item)?.currentLocation || '')).map(action => action.item) || [])
   const categoryOptions = Array.from(new Set(entries.map(entry => entry.item ? itemMap.get(entry.item)?.type : null).filter((value): value is string => Boolean(value)))).sort()
   const needle = query.toLowerCase().trim()
-  const visibleEntries = entries.map((entry, index) => ({ entry, index })).filter(({ entry }) => {
+  const decisionFor = (index: number) => `${section}:${index + 1}`
+  const statusFor = (entry: PackingPlanEntry, index: number): PackingRowStatus => {
+    const item = entry.item ? itemMap.get(entry.item) : null
+    const decision = decisionFor(index)
+    const itemOutcome = entry.item ? execution?.actions.find(action => action.item === entry.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
+    const outcome = itemOutcome || (planOwnsExecution ? execution?.actions.find(action => action.decision === decision && action.states.at(-1)?.status === 'applied') : undefined)
+    const replacement = planOwnsExecution ? execution?.actions.find(action => action.description === `Replacement for ${decision}` && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
+    const wasPacked = outcome?.kind === 'packed'
+    const isCurrentlyPacked = Boolean(wasPacked && item && luggageIds.has(item.currentLocation || ''))
+    return replacement ? 'swapped' : isCurrentlyPacked ? 'packed' : wasPacked ? 'unpacked' : outcome?.kind === 'rejected' ? 'removed' : 'proposed'
+  }
+  const visibleEntries = entries.map((entry, index) => ({ entry, index, status: statusFor(entry, index) })).filter(({ entry }) => {
     const item = entry.item ? itemMap.get(entry.item) : null
     if (view === 'unpack' && (!item || !appliedPackedItems.has(item.id))) return false
     const categoryMatches = categoryFilter === 'all' || item?.type === categoryFilter
     const searchMatches = !needle || `${item?.name || ''} ${item?.type || ''} ${entry.requirement || ''} ${entry.reason} ${entry.container || ''}`.toLowerCase().includes(needle)
     return categoryMatches && searchMatches
-  })
+  }).sort((left, right) => PACKING_ROW_ORDER[left.status] - PACKING_ROW_ORDER[right.status] || left.index - right.index)
   const packEntries = plan.sections.pack
   const visibleSelectable = section === 'pack' ? visibleEntries.filter(({ entry }) => !entry.item || !appliedPackedItems.has(entry.item)) : []
   const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every(({ index }) => selectedDecisions.has(`pack:${index + 1}`))
@@ -596,16 +610,11 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
       </nav>}
       <div className="packing-list">
         <div className="packing-list-head"><span className="packing-list-title">{PACKING_SECTION_LABELS[section]}<span className={`plan-status ${plan.status}`}>{plan.status === 'draft' ? 'Updated selections' : 'Confirmed plan'}</span></span>{section === 'pack' ? <div className="packing-batch-controls">{view === 'pack' && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan, section)}><Plus size={13} /> Add to {PACKING_SECTION_LABELS[section]}</button>}<label><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} disabled={!visibleSelectable.length} /> Select visible</label><span>{selectedDecisions.size} selected</span><button disabled={!selectedDecisions.size || busy} onClick={packSelected}><PackageCheck size={13} /> Pack selected</button></div> : <div className="packing-batch-controls">{view === 'pack' && section === 'wear_in_transit' && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan, section)}><Plus size={13} /> Add to {PACKING_SECTION_LABELS[section]}</button>}<span>{visibleEntries.length} decisions</span></div>}</div>
-        {visibleEntries.map(({ entry, index }) => {
+        {visibleEntries.map(({ entry, index, status }) => {
           const item = entry.item ? itemMap.get(entry.item) : null
           const decision = `${section}:${index + 1}`
-          const itemOutcome = entry.item ? execution?.actions.find(action => action.item === entry.item && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
-          const outcome = itemOutcome || (planOwnsExecution ? execution?.actions.find(action => action.decision === decision && action.states.at(-1)?.status === 'applied') : undefined)
           const replacement = planOwnsExecution ? execution?.actions.find(action => action.description === `Replacement for ${decision}` && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
           const replacementItem = replacement?.item ? itemMap.get(replacement.item) : null
-          const wasPacked = outcome?.kind === 'packed'
-          const isCurrentlyPacked = Boolean(wasPacked && item && luggageIds.has(item.currentLocation || ''))
-          const status = replacement ? 'swapped' : isCurrentlyPacked ? 'packed' : wasPacked ? 'unpacked' : outcome?.kind === 'rejected' ? 'removed' : 'proposed'
           return (
             <article className={`packing-item ${status}`} key={`${decision}:${entry.item || entry.requirement}`}>
               {section === 'pack' && (status === 'proposed' || status === 'unpacked') && <label className="packing-item-select"><input type="checkbox" checked={selectedDecisions.has(decision)} onChange={() => setSelectedDecisions(current => { const next = new Set(current); if (next.has(decision)) next.delete(decision); else next.add(decision); return next })} aria-label={`Select ${item?.name || entry.requirement || 'packing item'}`} /></label>}
@@ -724,16 +733,30 @@ function TripTransferDialog({ pending, homes, locationNames, busy, error, onClos
   )
 }
 
-function PackingActionDialog({ pending, busy, error, onClose, onConfirm }: {
+function PackingActionDialog({ pending, busy, error, locationNames, onClose, onConfirm }: {
   pending: PendingPackingAction | null
   busy: boolean
   error: string | null
+  locationNames: Record<string, string>
   onClose: () => void
   onConfirm: (replacementItemId?: string, notes?: string) => void
 }) {
   const [replacementId, setReplacementId] = useState('')
   const [swapNotes, setSwapNotes] = useState('')
-  useEffect(() => { setReplacementId(''); setSwapNotes('') }, [pending])
+  const [swapFilter, setSwapFilter] = useState('')
+  const [swapLocationFilter, setSwapLocationFilter] = useState('all')
+  useEffect(() => { setReplacementId(''); setSwapNotes(''); setSwapFilter(''); setSwapLocationFilter('all') }, [pending])
+  useEffect(() => {
+    if (!pending || pending.action !== 'swap') return
+    const sameType = pending.candidates.filter(candidate => candidate.type === pending.item.type)
+    const needle = swapFilter.toLowerCase().trim()
+    const candidates = sameType.filter(candidate => (
+      (swapLocationFilter === 'all' || candidate.currentLocation === swapLocationFilter)
+      && (!needle || `${candidate.name} ${candidate.color || ''} ${candidate.condition || ''}`.toLowerCase().includes(needle))
+    ))
+    if (candidates.some(candidate => candidate.id === replacementId)) return
+    setReplacementId(candidates[0]?.id || '')
+  }, [pending, swapFilter, swapLocationFilter, replacementId])
   if (!pending) return null
   const verb = pending.action === 'pack' ? 'Pack' : pending.action === 'swap' ? 'Swap' : 'Remove'
   const startsExecution = pending.plan.status === 'draft' && pending.action === 'pack' && !pending.continuesExecution
@@ -741,13 +764,19 @@ function PackingActionDialog({ pending, busy, error, onClose, onConfirm }: {
   const targetLabel = batchCount > 1 ? `${batchCount} selected items` : pending.item.name
   const replacementType = pending.item.type.replaceAll('_', ' ')
   const sameTypeCandidates = pending.candidates.filter(candidate => candidate.type === pending.item.type)
+  const swapLocationOptions = Array.from(new Set(sameTypeCandidates.map(candidate => candidate.currentLocation)))
+  const swapNeedle = swapFilter.toLowerCase().trim()
+  const filteredSwapCandidates = sameTypeCandidates.filter(candidate => (
+    (swapLocationFilter === 'all' || candidate.currentLocation === swapLocationFilter)
+    && (!swapNeedle || `${candidate.name} ${candidate.color || ''} ${candidate.condition || ''}`.toLowerCase().includes(swapNeedle))
+  ))
   const editsWearSelection = pending.section === 'wear_in_transit' && (pending.action === 'swap' || pending.action === 'remove')
   return (
     <div className="modal-backdrop" role="presentation">
       <motion.div className="move-dialog packing-dialog" role="dialog" aria-modal="true" aria-labelledby="packing-dialog-title" initial={{ opacity: 0, scale: .97 }} animate={{ opacity: 1, scale: 1 }}>
         <div className="dialog-icon">{pending.action === 'pack' ? <PackageCheck /> : pending.action === 'swap' ? <ArrowLeftRight /> : <Trash2 />}</div>
         <div><small>Confirm packing action</small><h2 id="packing-dialog-title">{verb} {targetLabel}?</h2></div>
-        {pending.action === 'swap' && <div className="swap-fields"><label className="dialog-field">Replacement · {replacementType}<select value={replacementId} onChange={event => setReplacementId(event.target.value)}><option value="">Choose a {replacementType}</option>{sameTypeCandidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.currentLocation}</option>)}</select><small>Only items of the same type are shown.</small></label><label className="dialog-field">Why are you swapping?<textarea value={swapNotes} onChange={event => setSwapNotes(event.target.value)} placeholder="Fit, weather, color, comfort, condition…" rows={3} /><small>This note is saved with the decision as evidence for future recommendations.</small></label></div>}
+        {pending.action === 'swap' && <div className="swap-fields"><div className="add-item-filters"><label className="dialog-field">Current location<select value={swapLocationFilter} onChange={event => setSwapLocationFilter(event.target.value)}><option value="all">All locations · {sameTypeCandidates.length}</option>{swapLocationOptions.map(location => <option key={location} value={location}>{locationNames[location] || location} · {sameTypeCandidates.filter(candidate => candidate.currentLocation === location).length}</option>)}</select></label><label className="dialog-field">Find within replacements<input value={swapFilter} onChange={event => setSwapFilter(event.target.value)} placeholder="Name, color, or condition" /></label></div><label className="dialog-field">Replacement · {replacementType} <span className="optional-label">{filteredSwapCandidates.length} matches</span><select value={replacementId} onChange={event => setReplacementId(event.target.value)}><option value="">{filteredSwapCandidates.length ? 'Choose a replacement' : 'No items match these filters'}</option>{filteredSwapCandidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}{candidate.color ? ` · ${candidate.color}` : ''} · {locationNames[candidate.currentLocation] || candidate.currentLocation}</option>)}</select><small>Only items of the same type are shown.</small></label><label className="dialog-field">Why are you swapping?<textarea value={swapNotes} onChange={event => setSwapNotes(event.target.value)} placeholder="Fit, weather, color, comfort, condition…" rows={3} /><small>This note is saved with the decision as evidence for future recommendations.</small></label></div>}
         <p>{startsExecution ? `This confirms the proposed plan, creates its execution ledger, and moves ${batchCount > 1 ? 'these exact items' : 'this exact item'} into the assigned container${batchCount > 1 ? 's' : ''}. ` : pending.action === 'pack' && pending.continuesExecution && pending.plan.status === 'draft' ? 'This records the updated selection in the active execution without replacing its confirmed plan. ' : ''}{pending.action === 'pack' ? `${batchCount > 1 ? 'Every packed outcome and physical location change' : 'The packed outcome and physical location change'} will be recorded.` : pending.action === 'swap' ? editsWearSelection ? 'This updates the wear-in-transit recommendation only; no item moves.' : pending.plan.status === 'draft' ? 'This updates only the draft recommendation; no item moves yet.' : 'The original decision will be rejected and the replacement will be physically moved and recorded.' : editsWearSelection ? 'This removes the item from the wear-in-transit recommendation; no inventory location changes.' : pending.plan.status === 'draft' ? 'This removes the recommendation from the draft; no physical inventory changes.' : 'This records that you rejected this confirmed packing decision.'}</p>
         {error && <div className="dialog-error">{error}</div>}
         <div className="dialog-actions"><button onClick={onClose} disabled={busy}>Cancel</button><button className="confirm" onClick={() => onConfirm(replacementId || undefined, swapNotes.trim() || undefined)} disabled={busy || (pending.action === 'swap' && (!replacementId || !swapNotes.trim()))}>{busy ? <LoaderCircle className="spin" size={18} /> : <Check size={18} />} Confirm {verb.toLowerCase()}</button></div>
@@ -1195,7 +1224,7 @@ function TripsView({ trips, overview, containerDetails, query, onDataChanged, on
           <button className={surface === 'containers' ? 'active' : ''} onClick={() => { setSurface('containers'); void onLoadContainers() }}><Archive /><span><strong>View contents</strong><small>Inspect packed items</small></span></button>
         </div>
       </main>
-      <PackingActionDialog pending={pendingAction} busy={actionBusy} error={actionError} onClose={() => { setPendingAction(null); setActionError(null) }} onConfirm={(replacementId, notes) => void confirmAction(replacementId, notes)} />
+      <PackingActionDialog pending={pendingAction} busy={actionBusy} error={actionError} locationNames={locationNames} onClose={() => { setPendingAction(null); setActionError(null) }} onConfirm={(replacementId, notes) => void confirmAction(replacementId, notes)} />
       <PackingEditDialog pending={pendingEdit} busy={actionBusy} error={actionError} onClose={() => { setPendingEdit(null); setActionError(null) }} onConfirm={(itemId, container, reason) => void confirmEdit(itemId, container, reason)} />
       <TripTransferDialog pending={pendingTransfer} homes={homes} locationNames={locationNames} busy={actionBusy} error={actionError} onClose={() => { setPendingTransfer(null); setActionError(null) }} onConfirm={(destination, reason) => void confirmTransfer(destination, reason)} />
     </div>
