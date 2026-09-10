@@ -13,7 +13,7 @@ categories:
     name: Jeans & Pants
     description: Jeans, shorts, and everyday pants
     artwork: /assets/zone-bottoms.png
-    item_types: [jeans, shorts, sports_shorts, sweatpants, thermal_pants]
+    item_types: [jeans, chinos, hiking_pants, shorts, sports_shorts, sweatpants, thermal_pants]
   - id: outerwear
     name: Outerwear
     description: Warm layers and jackets

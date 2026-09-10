@@ -14,10 +14,12 @@ definitions:
     - beanie
     - belt
     - boots
+    - chinos
     - dress_shoes
     - flip_flops
     - gloves
     - hat
+    - hiking_pants
     - hoodie
     - jacket
     - jeans
@@ -53,10 +55,12 @@ definitions:
     beanie: {default_space_liters: 0.6, default_weight_kg: 0.1}
     belt: {default_space_liters: 0.5, default_weight_kg: 0.2}
     boots: {default_space_liters: 8.0, default_weight_kg: 1.4}
+    chinos: {default_space_liters: 1.5, default_weight_kg: 0.4}
     dress_shoes: {default_space_liters: 6.0, default_weight_kg: 1.0}
     flip_flops: {default_space_liters: 2.0, default_weight_kg: 0.3}
     gloves: {default_space_liters: 0.5, default_weight_kg: 0.12}
     hat: {default_space_liters: 1.2, default_weight_kg: 0.1}
+    hiking_pants: {default_space_liters: 2.0, default_weight_kg: 0.4}
     hoodie: {default_space_liters: 3.0, default_weight_kg: 0.6}
     jacket: {default_space_liters: 4.0, default_weight_kg: 0.7}
     jeans: {default_space_liters: 2.5, default_weight_kg: 0.7}
