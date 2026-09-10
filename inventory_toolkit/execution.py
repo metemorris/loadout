@@ -953,22 +953,47 @@ def confirm_packing_decisions(
     if execution.status not in ("preparing", "in_progress", "reconciling"):
         raise ExecutionValidationError(["execution status does not accept actions"])
     plan = plan_snapshot or load_packing_plan(execution.packing_plan, data_dir)
+    decision_actions: Dict[str, List[ExecutionAction]] = {}
+    for action in execution.actions:
+        if action.decision and action.state != "failed":
+            decision_actions.setdefault(action.decision, []).append(action)
+    inventory = inventory_snapshot or load_inventory(data_dir)
+    container_ids = {
+        location.id for location in inventory.locations if location.kind == "travel_container"
+    }
+
+    def _repack_qualifies(decision: str) -> bool:
+        """True when the decided item was packed before and is now unpacked."""
+        prior = decision_actions.get(decision)
+        if not prior or not any(
+            action.kind == "packed" and action.state == "applied" for action in prior
+        ):
+            return False
+        section, entry = _decision_entry(plan, decision)
+        if section != "pack" or entry.item is None or entry.container is None:
+            return False
+        try:
+            item = inventory.resolve_item(entry.item)
+        except LookupError:
+            return False
+        return item.current_location not in container_ids
+
+    re_packs = [decision for decision in decisions if _repack_qualifies(decision)]
+    fresh = [decision for decision in decisions if decision not in re_packs]
     existing_decisions = {
         action.decision
         for action in execution.actions
         if action.decision and action.state != "failed"
     }
-    repeated = [decision for decision in decisions if decision in existing_decisions]
+    repeated = [decision for decision in fresh if decision in existing_decisions]
     if repeated:
         raise ExecutionValidationError(
             ["packing decisions already have outcomes: {}".format(", ".join(repeated))]
         )
-
-    inventory = inventory_snapshot or load_inventory(data_dir)
     resolved = []
     seen_items = set()
     movement_groups: Dict[Tuple[str, str], List[Tuple[str, Any]]] = {}
-    for decision in decisions:
+    for decision in fresh:
         section, entry = _decision_entry(plan, decision)
         if section != "pack" or entry.item is None or entry.container is None:
             raise ExecutionValidationError(
@@ -1064,6 +1089,40 @@ def confirm_packing_decisions(
             )
 
     updated = _mutate_executions(data_dir, finish_batch).get(execution_id)
+
+    # Unpacked items whose decision already has an applied packed outcome are
+    # re-packed as fresh factual actions; the prior outcome remains as history.
+    for index, decision in enumerate(re_packs, 1):
+        _section, entry = _decision_entry(plan, decision)
+        try:
+            item = inventory.resolve_item(entry.item)
+            if item.current_location == entry.container:
+                outcomes[decision] = (
+                    "failed",
+                    "{} is already in {}".format(item.id, entry.container),
+                )
+                continue
+            record_execution_action(
+                execution_id,
+                "{}-repack-{}".format(action_id_prefix, index),
+                "packed",
+                item=entry.item,
+                description=entry.requirement,
+                decision=decision,
+                leg=entry.leg,
+                source=item.current_location,
+                destination=entry.container,
+                reason=reason,
+                confirmed=True,
+                timestamp=action_time,
+                data_dir=data_dir,
+            )
+            outcomes[decision] = ("applied", None)
+        except Exception as exc:
+            outcomes[decision] = ("failed", str(exc))
+    if re_packs:
+        updated = load_trip_execution(execution_id, data_dir)
+
     return BatchPackingResult(
         updated,
         tuple(decision for decision in decisions if outcomes[decision][0] == "applied"),
