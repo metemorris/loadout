@@ -558,8 +558,6 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
     return categoryMatches && searchMatches
   })
   const packEntries = plan.sections.pack
-  const packedCount = packEntries.filter(entry => entry.item && appliedPackedItems.has(entry.item)).length
-  const completedCount = packEntries.filter((entry, index) => entry.item && (appliedPackedItems.has(entry.item) || (planOwnsExecution && execution?.actions.some(action => action.decision === `pack:${index + 1}` && action.kind === 'rejected' && action.states.at(-1)?.status === 'applied')))).length
   const visibleSelectable = section === 'pack' ? visibleEntries.filter(({ entry }) => !entry.item || !appliedPackedItems.has(entry.item)) : []
   const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every(({ index }) => selectedDecisions.has(`pack:${index + 1}`))
 
@@ -587,10 +585,6 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
 
   return (
     <section className="packing-surface">
-      <div className="packing-summary">
-        <div><span className={`plan-status ${plan.status}`}>{view === 'unpack' ? 'Physical contents' : plan.status === 'draft' ? 'Updated selections' : 'Confirmed plan'}</span><h2>{view === 'unpack' ? 'Unpack your trip' : 'Your packing list'}</h2><p>{view === 'unpack' ? 'Only physically packed items appear here. Every unpack requires confirmation and records a returned outcome.' : plan.status === 'draft' && execution ? 'Your updated selections are shown against factual progress from the active execution.' : plan.status === 'draft' ? 'Review the proposal. Your first confirmed Pack locks the plan and begins factual execution.' : 'Each completed action is recorded in the trip execution ledger.'}</p>{view === 'pack' && (section === 'pack' || section === 'wear_in_transit') && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan, section)}><Plus size={14} /> Add to {PACKING_SECTION_LABELS[section]}</button>}</div>
-        <div className="packing-progress"><strong>{packedCount}<span> / {packEntries.length}</span></strong><small>physically packed</small><div><span style={{ width: `${packEntries.length ? completedCount / packEntries.length * 100 : 0}%` }} /></div></div>
-      </div>
       {view === 'pack' && <nav className="packing-section-tabs" aria-label="Packing plan sections">
         {(Object.keys(PACKING_SECTION_LABELS) as PackingSection[]).map(value => (
           <button key={value} className={section === value ? 'active' : ''} onClick={() => setSection(value)}><span>{PACKING_SECTION_LABELS[value]}</span><strong>{plan.sections[value].length}</strong></button>
@@ -601,7 +595,7 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
         {categoryOptions.map(type => <button key={type} className={categoryFilter === type ? 'active' : ''} onClick={() => setCategoryFilter(type)}>{type.replaceAll('_', ' ')} <strong>{entries.filter(entry => entry.item && itemMap.get(entry.item)?.type === type).length}</strong></button>)}
       </nav>}
       <div className="packing-list">
-        <div className="packing-list-head"><span>{PACKING_SECTION_LABELS[section]}</span>{section === 'pack' ? <div className="packing-batch-controls"><label><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} disabled={!visibleSelectable.length} /> Select visible</label><span>{selectedDecisions.size} selected</span><button disabled={!selectedDecisions.size || busy} onClick={packSelected}><PackageCheck size={13} /> Pack selected</button></div> : <span>{visibleEntries.length} decisions</span>}</div>
+        <div className="packing-list-head"><span className="packing-list-title">{PACKING_SECTION_LABELS[section]}<span className={`plan-status ${plan.status}`}>{plan.status === 'draft' ? 'Updated selections' : 'Confirmed plan'}</span></span>{section === 'pack' ? <div className="packing-batch-controls">{view === 'pack' && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan, section)}><Plus size={13} /> Add to {PACKING_SECTION_LABELS[section]}</button>}<label><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} disabled={!visibleSelectable.length} /> Select visible</label><span>{selectedDecisions.size} selected</span><button disabled={!selectedDecisions.size || busy} onClick={packSelected}><PackageCheck size={13} /> Pack selected</button></div> : <div className="packing-batch-controls">{view === 'pack' && section === 'wear_in_transit' && <button className="add-packing-item" disabled={busy} onClick={() => onAddItem(plan, section)}><Plus size={13} /> Add to {PACKING_SECTION_LABELS[section]}</button>}<span>{visibleEntries.length} decisions</span></div>}</div>
         {visibleEntries.map(({ entry, index }) => {
           const item = entry.item ? itemMap.get(entry.item) : null
           const decision = `${section}:${index + 1}`
@@ -609,28 +603,30 @@ function PackingListSurface({ detail, availableContainers, locationNames, query,
           const outcome = itemOutcome || (planOwnsExecution ? execution?.actions.find(action => action.decision === decision && action.states.at(-1)?.status === 'applied') : undefined)
           const replacement = planOwnsExecution ? execution?.actions.find(action => action.description === `Replacement for ${decision}` && action.kind === 'packed' && action.states.at(-1)?.status === 'applied') : undefined
           const replacementItem = replacement?.item ? itemMap.get(replacement.item) : null
-          const status = replacement ? 'swapped' : outcome?.kind === 'packed' ? 'packed' : outcome?.kind === 'rejected' ? 'removed' : 'proposed'
+          const wasPacked = outcome?.kind === 'packed'
+          const isCurrentlyPacked = Boolean(wasPacked && item && luggageIds.has(item.currentLocation || ''))
+          const status = replacement ? 'swapped' : isCurrentlyPacked ? 'packed' : wasPacked ? 'unpacked' : outcome?.kind === 'rejected' ? 'removed' : 'proposed'
           return (
             <article className={`packing-item ${status}`} key={`${decision}:${entry.item || entry.requirement}`}>
-              {section === 'pack' && status === 'proposed' && <label className="packing-item-select"><input type="checkbox" checked={selectedDecisions.has(decision)} onChange={() => setSelectedDecisions(current => { const next = new Set(current); if (next.has(decision)) next.delete(decision); else next.add(decision); return next })} aria-label={`Select ${item?.name || entry.requirement || 'packing item'}`} /></label>}
+              {section === 'pack' && (status === 'proposed' || status === 'unpacked') && <label className="packing-item-select"><input type="checkbox" checked={selectedDecisions.has(decision)} onChange={() => setSelectedDecisions(current => { const next = new Set(current); if (next.has(decision)) next.delete(decision); else next.add(decision); return next })} aria-label={`Select ${item?.name || entry.requirement || 'packing item'}`} /></label>}
               <span className="packing-item-icon">{item ? <GarmentGlyph item={item} index={index} size={27} /> : <Sparkles size={22} />}</span>
               <div className="packing-item-copy">
                 <div><strong>{item?.name || entry.requirement?.replaceAll('_', ' ') || 'Unspecified item'}</strong><span className={`packing-state ${status}`}>{status}</span></div>
                 <small>{entry.container ? `To ${locationNames[entry.container] || entry.container}` : PACKING_SECTION_LABELS[section]}{entry.leg ? ` · ${entry.leg.replaceAll('-', ' → ')}` : ''}</small>
                 <p>{replacementItem ? `Swapped for ${replacementItem.name}. ` : ''}{entry.reason}</p>
               </div>
-              {section === 'pack' && item && status === 'proposed' && <div className="packing-item-actions">
+              {section === 'pack' && item && (status === 'proposed' || status === 'unpacked') && <div className="packing-item-actions">
                 <button className="pack-now" disabled={busy} onClick={() => onAction({ action: 'pack', section, entryIndex: index + 1, entry, item, plan, candidates: [], continuesExecution: Boolean(execution) })}><PackageCheck size={16} /> Pack</button>
                 <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Swap item</button>
                 <button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: availableContainers, assignedContainerIds: detail.containers.map(container => container.id), physicallyPacked: false })}><Luggage size={15} /> Change bag</button>
                 <button className="remove-item" disabled={busy} onClick={() => onAction({ action: 'remove', section, entryIndex: index + 1, entry, item, plan, candidates: [] })} aria-label={`Remove ${item.name}`}><Trash2 size={15} /></button>
               </div>}
-              {section === 'wear_in_transit' && item && status === 'proposed' && <div className="packing-item-actions">
+              {section === 'wear_in_transit' && item && (status === 'proposed' || status === 'unpacked') && <div className="packing-item-actions">
                 <button disabled={busy} onClick={() => onAction({ action: 'swap', section, entryIndex: index + 1, entry, item, plan, candidates: [] })}><ArrowLeftRight size={15} /> Change item</button>
                 <button className="remove-item" disabled={busy} onClick={() => onAction({ action: 'remove', section, entryIndex: index + 1, entry, item, plan, candidates: [] })} aria-label={`Remove ${item.name}`}><Trash2 size={15} /></button>
               </div>}
               {section === 'pack' && item && status === 'packed' && <div className="packing-item-actions"><button disabled={busy} onClick={() => onChangeContainer({ mode: 'container', plan, section, entryIndex: index + 1, entry, item, containers: availableContainers, assignedContainerIds: detail.containers.map(container => container.id), physicallyPacked: true })}><Luggage size={15} /> Change bag</button><button className="unpack-item" disabled={busy} onClick={() => { const packedAction = execution?.actions.find(action => action.item === item.id && action.kind === 'packed' && action.states.at(-1)?.status === 'applied' && action.source && !luggageIds.has(action.source)); if (packedAction?.source) onUnpack({ mode: 'unpack', plan, section, entryIndex: index + 1, entry, item, containers: detail.containers, returnTo: packedAction.source }) }}><Archive size={15} /> Undo pack</button></div>}
-              {status !== 'proposed' && <span className={`outcome-mark ${status}`}>{status === 'packed' ? <Check size={18} /> : status === 'swapped' ? <ArrowLeftRight size={18} /> : <X size={18} />}</span>}
+              {status !== 'proposed' && <span className={`outcome-mark ${status}`}>{status === 'packed' ? <Check size={18} /> : status === 'swapped' ? <ArrowLeftRight size={18} /> : status === 'unpacked' ? <Archive size={18} /> : <X size={18} />}</span>}
             </article>
           )
         })}
@@ -674,10 +670,6 @@ function TripTransferSurface({ detail, locationNames, query, busy, onTransfer }:
 
   return (
     <section className="packing-surface transfer-surface">
-      <div className="packing-summary">
-        <div><span className="plan-status">Physical contents</span><h2>Unload at your current stay</h2><p>Choose the exact items that left your bags, then select the home where they are physically stored. This records an interim transfer and keeps preferred homes unchanged.</p></div>
-        <div className="packing-progress"><strong>{physicalItems.length}</strong><small>items in trip luggage</small><div><span style={{ width: physicalItems.length ? `${selectedItems.length / physicalItems.length * 100}%` : '0%' }} /></div></div>
-      </div>
       <div className="packing-list">
         <div className="packing-list-head"><span>Luggage contents</span><div className="packing-batch-controls"><label><input type="checkbox" checked={allVisibleSelected} onChange={toggleVisible} disabled={!visibleItems.length} /> Select visible</label><span>{selectedItems.length} selected</span><button disabled={!selectedItems.length || busy} onClick={() => onTransfer(selectedItems)}><Archive size={13} /> Choose destination</button></div></div>
         {visibleItems.map((item, index) => (
